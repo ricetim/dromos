@@ -10,6 +10,7 @@ from app.services.coros import download_fit, get_activity_detail
 from app.services.fit_parser import parse_fit_file
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR, STRAVA_REFRESH_TOKEN
 from app.services.builder import bg_rebuild_all
+from app.services.weather import fetch_weather
 from datetime import datetime, timezone
 import uuid
 
@@ -225,7 +226,6 @@ def _sync_coros() -> None:
                     (dp for dp in result.datapoints if dp.get("lat") and dp.get("lon")), None
                 )
                 if first_gps:
-                    from app.services.weather import fetch_weather
                     weather = fetch_weather(first_gps["lat"], first_gps["lon"], result.started_at)
                     if weather:
                         for k, v in weather.items():
