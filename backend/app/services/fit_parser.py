@@ -93,7 +93,7 @@ def _synthesize_mile_laps(datapoints: list[dict]) -> list["LapData"]:
             duration_s=round(dur, 1),
             avg_hr=avg_hr,
             avg_pace_s_per_km=round(pace, 1) if pace else None,
-            elevation_gain_m=round(elev_gain, 2) if elev_gain else None,
+            elevation_gain_m=round(elev_gain, 2) if alts else None,
         )
 
     for i, dp in enumerate(pts):

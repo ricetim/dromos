@@ -76,9 +76,22 @@ def test_synthesize_exact_one_mile():
 
 def test_synthesize_ignores_tiny_remainder():
     """Remainder < 50m should not produce an extra lap."""
-    dps = _make_dps(1620.0)  # 1 mile + ~10m remainder — below threshold
+    # step_m=10 gives points at 0, 10, 20, ... 1610 (past the mile boundary)
+    # After crossing the mile at ~1609.344, lap_start_idx is at the 1610 point.
+    # pts[-1].distance_m = 1640, lap_start_idx point = 1610, remaining = 30m < 50m
+    dps = _make_dps(1640.0, step_m=10.0)
     laps = _synthesize_mile_laps(dps)
-    assert len(laps) == 1
+    assert len(laps) == 1  # only the full mile; remainder 30m is below 50m threshold
+
+
+def test_synthesize_large_remainder_creates_partial():
+    """Remainder >= 50m should produce a partial lap."""
+    # total_m=1700, step_m=10: after mile boundary at 1610, remaining = 1700-1610 = 90m >= 50m
+    dps = _make_dps(1700.0, step_m=10.0)
+    laps = _synthesize_mile_laps(dps)
+    assert len(laps) == 2  # one full mile + one partial
+    assert laps[1].distance_m < 1609.344
+    assert laps[1].distance_m >= 50.0
 
 
 def test_synthesize_avg_hr():
