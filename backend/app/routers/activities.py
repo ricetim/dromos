@@ -8,13 +8,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
 from app.config import DATA_DIR
 from app.database import get_session
-from app.models import Activity, DataPoint, Photo, PlannedWorkout, Lap
+from app.models import Activity, ActivityShoe, DataPoint, Photo, PlannedWorkout, Lap
 from app.services.fit_parser import parse_fit_file
 from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update
+from app.services.weather import fetch_weather
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
@@ -250,6 +252,20 @@ def upload_fit(
 
     session.commit()
     session.refresh(act)
+
+    # Fetch weather from Open-Meteo (non-blocking: failure just leaves fields null)
+    first_gps = next(
+        (dp for dp in result.datapoints if dp.get("lat") and dp.get("lon")), None
+    )
+    if first_gps:
+        weather = fetch_weather(first_gps["lat"], first_gps["lon"], result.started_at)
+        if weather:
+            for k, v in weather.items():
+                setattr(act, k, v)
+            session.add(act)
+            session.commit()
+            session.refresh(act)
+
     _invalidate_list_cache()
     from app.routers.stats import _invalidate_pb_cache, _invalidate_stats_cache
     _invalidate_pb_cache()
@@ -263,8 +279,10 @@ def delete_activity(activity_id: int, background_tasks: BackgroundTasks, session
     act = session.get(Activity, activity_id)
     if not act:
         raise HTTPException(status_code=404, detail="Activity not found")
-    for dp in session.exec(select(DataPoint).where(DataPoint.activity_id == activity_id)).all():
-        session.delete(dp)
+    # Bulk-delete related rows — much faster than ORM-level one-by-one deletion
+    session.exec(sa_delete(DataPoint).where(DataPoint.activity_id == activity_id))
+    session.exec(sa_delete(Photo).where(Photo.activity_id == activity_id))
+    session.exec(sa_delete(ActivityShoe).where(ActivityShoe.activity_id == activity_id))
     session.delete(act)
     session.commit()
     _invalidate_list_cache()
