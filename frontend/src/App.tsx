@@ -10,11 +10,12 @@ import Goals from "./pages/Goals";
 import Plans from "./pages/Plans";
 import PlanDetail from "./pages/PlanDetail";
 import CalendarView from "./pages/CalendarView";
-import Fitness from "./pages/Fitness";
+import Metrics from "./pages/Metrics";
 import ErrorBoundary from "./components/ErrorBoundary";
 
-// Lazy-load ActivityDetail so Leaflet only initialises when the map is needed
+// Lazy-load map-heavy pages so Leaflet only initialises when needed
 const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
+const Compare = lazy(() => import("./pages/Compare"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,11 +38,12 @@ queryClient.prefetchQuery({ queryKey: ["vdot"],                   queryFn: getVd
 const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/activities", label: "Activities" },
+  { to: "/compare", label: "Compare" },
   { to: "/calendar", label: "Calendar" },
   { to: "/gear", label: "Gear" },
   { to: "/goals", label: "Goals" },
   { to: "/plans", label: "Plans" },
-  { to: "/fitness", label: "Fitness" },
+  { to: "/metrics", label: "Metrics" },
 ];
 
 function Nav() {
@@ -137,7 +139,8 @@ export default function App() {
                     <Route path="/plans" element={<Plans />} />
                     <Route path="/plans/:id" element={<PlanDetail />} />
                     <Route path="/calendar" element={<CalendarView />} />
-                    <Route path="/fitness" element={<Fitness />} />
+                    <Route path="/metrics" element={<Metrics />} />
+                    <Route path="/compare" element={<Compare />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>
