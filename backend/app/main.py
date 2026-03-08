@@ -32,10 +32,10 @@ def _startup_rebuild():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
-    from app.routers.sync import _sync_strava_photos, _sync_coros
+    from app.routers.sync import _sync_strava_activities, _sync_coros
     from app.config import STRAVA_REFRESH_TOKEN, COROS_EMAIL
     if STRAVA_REFRESH_TOKEN:
-        scheduler.add_job(_sync_strava_photos, "interval", hours=6)
+        scheduler.add_job(_sync_strava_activities, "interval", hours=6)
     if COROS_EMAIL:
         scheduler.add_job(_sync_coros, "interval", minutes=30)
     scheduler.start()

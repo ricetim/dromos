@@ -10,15 +10,17 @@ router = APIRouter(prefix="/api/shoes", tags=["shoes"])
 @router.get("")
 def list_shoes(session: Session = Depends(get_session)):
     shoes = session.exec(select(Shoe)).all()
-    result = []
-    for shoe in shoes:
-        dist = session.exec(
-            select(func.sum(Activity.distance_m))
-            .join(ActivityShoe, ActivityShoe.activity_id == Activity.id)
-            .where(ActivityShoe.shoe_id == shoe.id)
-        ).first() or 0.0
-        result.append({**shoe.model_dump(), "total_distance_km": round(dist / 1000, 1)})
-    return result
+    # Single aggregation query instead of N+1 per shoe
+    dist_rows = session.exec(
+        select(ActivityShoe.shoe_id, func.sum(Activity.distance_m))
+        .join(Activity, Activity.id == ActivityShoe.activity_id)
+        .group_by(ActivityShoe.shoe_id)
+    ).all()
+    dist_by_shoe = {row[0]: row[1] or 0.0 for row in dist_rows}
+    return [
+        {**shoe.model_dump(), "total_distance_km": round(dist_by_shoe.get(shoe.id, 0.0) / 1000, 1)}
+        for shoe in shoes
+    ]
 
 
 @router.post("", status_code=201)

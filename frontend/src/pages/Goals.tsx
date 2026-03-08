@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getGoals, createGoal, deleteGoal } from "../api/client";
+import { getGoals, createGoal, updateGoal, deleteGoal } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 
 const KM_PER_MI = 1.60934;
@@ -38,18 +38,192 @@ function ProgressBar({ pct }: { pct: number }) {
   );
 }
 
-function GoalCard({ item, onDelete }: { item: GoalWithProgress; onDelete: () => void }) {
+function getDefaultDates(type: string): { period_start: string; period_end: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  if (type === "annual_distance") {
+    return { period_start: `${y}-01-01`, period_end: `${y}-12-31` };
+  }
+  if (type === "monthly_distance") {
+    const firstOfMonth = new Date(y, m, 1);
+    const lastOfMonth  = new Date(y, m + 1, 0);
+    return {
+      period_start: firstOfMonth.toISOString().slice(0, 10),
+      period_end:   lastOfMonth.toISOString().slice(0, 10),
+    };
+  }
+  // weekly
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((day + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    period_start: monday.toISOString().slice(0, 10),
+    period_end:   sunday.toISOString().slice(0, 10),
+  };
+}
+
+function GoalCard({
+  item,
+  onDelete,
+  onSave,
+}: {
+  item: GoalWithProgress;
+  onDelete: () => void;
+  onSave: (id: number, data: object) => void;
+}) {
   const { system } = useUnits();
   const { goal, progress_km } = item;
-  const pct = (progress_km / goal.target_value) * 100;
-  const typeLabel = GOAL_TYPES.find((t) => t.value === goal.type)?.label ?? goal.type;
-  const start = new Date(goal.period_start).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
-  const end = new Date(goal.period_end).toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
+  const [editing, setEditing] = useState(false);
 
   const fmtGoalDist = (km: number) =>
     system === "imperial"
       ? (km / KM_PER_MI).toFixed(1) + " mi"
       : km.toFixed(1) + " km";
+
+  const defaultTarget =
+    system === "imperial"
+      ? (goal.target_value / KM_PER_MI).toFixed(1)
+      : goal.target_value.toFixed(1);
+
+  const [editForm, setEditForm] = useState({
+    type: goal.type,
+    target_value: defaultTarget,
+    period_start: goal.period_start,
+    period_end: goal.period_end,
+    notes: goal.notes ?? "",
+  });
+
+  const pct = (progress_km / goal.target_value) * 100;
+  const typeLabel = GOAL_TYPES.find((t) => t.value === goal.type)?.label ?? goal.type;
+  const start = new Date(goal.period_start).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
+  const end   = new Date(goal.period_end).toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
+
+  const now       = Date.now();
+  const startMs   = new Date(goal.period_start).getTime();
+  const endMs     = new Date(goal.period_end).getTime();
+  const totalDays = (endMs - startMs) || 1;
+  const elapsed   = Math.max(0, Math.min(now - startMs, totalDays));
+  const expectedPct = elapsed / totalDays;
+  const actualPct   = progress_km / goal.target_value;
+  const done = now >= endMs;
+  const onTrack = actualPct >= expectedPct;
+
+  const trackLabel = done
+    ? pct >= 100 ? "Goal achieved!" : "Goal not reached"
+    : onTrack
+      ? `On track · ${((actualPct - expectedPct) * 100).toFixed(0)}% ahead`
+      : `Behind pace · ${system === "imperial"
+        ? ((expectedPct - actualPct) * goal.target_value / KM_PER_MI).toFixed(1) + " mi"
+        : ((expectedPct - actualPct) * goal.target_value).toFixed(1) + " km"} short`;
+  const trackColor = done
+    ? pct >= 100 ? "text-green-600" : "text-red-500"
+    : onTrack ? "text-green-600" : "text-orange-500";
+
+  // Projection: extrapolate current pace to end of period
+  let projectionText: string | null = null;
+  if (!done && elapsed > 0 && actualPct > 0) {
+    const projectedKm = progress_km / (elapsed / totalDays);
+    const diff = projectedKm - goal.target_value;
+    const diffFmt = fmtGoalDist(Math.abs(diff));
+    projectionText = diff >= 0
+      ? `On pace for ${fmtGoalDist(projectedKm)} (+${diffFmt} over goal)`
+      : `On pace for ${fmtGoalDist(projectedKm)} (${diffFmt} short of goal)`;
+  }
+
+  function handleSave() {
+    const targetKm = system === "imperial"
+      ? parseFloat(editForm.target_value) * KM_PER_MI
+      : parseFloat(editForm.target_value);
+    onSave(goal.id, {
+      type: editForm.type,
+      target_value: targetKm,
+      period_start: editForm.period_start,
+      period_end: editForm.period_end,
+      notes: editForm.notes || null,
+    });
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="bg-white border border-blue-300 rounded-xl p-4 shadow-sm space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700">Edit Goal</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs text-gray-500 mb-1">Type</label>
+            <select
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              value={editForm.type}
+              onChange={(e) => {
+                const newType = e.target.value;
+                setEditForm((f) => ({ ...f, type: newType, ...getDefaultDates(newType) }));
+              }}
+            >
+              {GOAL_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">
+              Target ({system === "imperial" ? "mi" : "km"})
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              value={editForm.target_value}
+              onChange={(e) => setEditForm((f) => ({ ...f, target_value: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Notes</label>
+            <input
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              value={editForm.notes}
+              onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="Optional"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Start date</label>
+            <input
+              type="date"
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              value={editForm.period_start}
+              onChange={(e) => setEditForm((f) => ({ ...f, period_start: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">End date</label>
+            <input
+              type="date"
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              value={editForm.period_end}
+              onChange={(e) => setEditForm((f) => ({ ...f, period_end: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => setEditing(false)}
+            className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!editForm.target_value}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
@@ -68,46 +242,27 @@ function GoalCard({ item, onDelete }: { item: GoalWithProgress; onDelete: () => 
       </div>
       <ProgressBar pct={pct} />
       <div className="flex items-center justify-between mt-2">
-        <div className="text-xs text-gray-400">{pct.toFixed(0)}% complete</div>
-        <button
-          onClick={onDelete}
-          className="text-xs text-gray-400 hover:text-red-500"
-        >
-          Delete
-        </button>
+        <div className={`text-xs font-medium ${trackColor}`}>{trackLabel}</div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs text-gray-400 hover:text-blue-500"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-xs text-gray-400 hover:text-red-500"
+          >
+            Delete
+          </button>
+        </div>
       </div>
+      {projectionText && (
+        <div className="mt-2 text-xs text-gray-400 italic">{projectionText}</div>
+      )}
     </div>
   );
-}
-
-function getDefaultDates(type: string): { period_start: string; period_end: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth(); // 0-based
-  if (type === "annual_distance") {
-    return {
-      period_start: `${y}-01-01`,
-      period_end:   `${y}-12-31`,
-    };
-  }
-  if (type === "monthly_distance") {
-    const firstOfMonth = new Date(y, m, 1);
-    const lastOfMonth  = new Date(y, m + 1, 0); // day 0 of next month = last day of this month
-    return {
-      period_start: firstOfMonth.toISOString().slice(0, 10),
-      period_end:   lastOfMonth.toISOString().slice(0, 10),
-    };
-  }
-  // weekly
-  const day = now.getDay(); // 0=Sun
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - ((day + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return {
-    period_start: monday.toISOString().slice(0, 10),
-    period_end:   sunday.toISOString().slice(0, 10),
-  };
 }
 
 export default function Goals() {
@@ -115,7 +270,7 @@ export default function Goals() {
   const { system } = useUnits();
   const [showForm, setShowForm] = useState(false);
 
-  const defaultTarget = system === "imperial" ? "62" : "100"; // ~100 km in miles
+  const defaultTarget = system === "imperial" ? "62" : "100";
   const [form, setForm] = useState(() => {
     const defaultType = "monthly_distance";
     const { period_start, period_end } = getDefaultDates(defaultType);
@@ -150,11 +305,19 @@ export default function Goals() {
       qc.invalidateQueries({ queryKey: ["goals"] });
       setShowForm(false);
     },
+    onError: () => qc.invalidateQueries({ queryKey: ["goals"] }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: object }) => updateGoal(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
+    onError:   () => qc.invalidateQueries({ queryKey: ["goals"] }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteGoal,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
+    onError:   () => qc.invalidateQueries({ queryKey: ["goals"] }),
   });
 
   return (
@@ -256,6 +419,7 @@ export default function Goals() {
               key={item.goal.id}
               item={item}
               onDelete={() => deleteMutation.mutate(item.goal.id)}
+              onSave={(id, data) => updateMutation.mutate({ id, data })}
             />
           ))}
         </div>

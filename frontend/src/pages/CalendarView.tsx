@@ -5,7 +5,7 @@ import { getActivities } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 import type { Activity } from "../types";
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const SPORT_COLORS: Record<string, string> = {
   run:          "bg-blue-100 text-blue-800 border-blue-200",
@@ -25,13 +25,18 @@ function formatActivityName(act: Activity): string {
   return act.sport_type.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-/** Return the Monday of the week containing `d`. */
-function weekMonday(d: Date): Date {
+/** Return the Sunday of the week containing `d`. */
+function weekSunday(d: Date): Date {
   const result = new Date(d);
-  const dow = (result.getDay() + 6) % 7; // 0=Mon
+  const dow = result.getDay(); // 0=Sun already
   result.setDate(result.getDate() - dow);
   result.setHours(0, 0, 0, 0);
   return result;
+}
+
+/** Local YYYY-MM-DD string (not UTC) */
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /** Build a 5-or-6 row calendar grid for the given year/month.
@@ -39,7 +44,7 @@ function weekMonday(d: Date): Date {
 function buildCalendarGrid(year: number, month: number): Date[][] {
   const firstDay = new Date(year, month, 1);
   const lastDay  = new Date(year, month + 1, 0);
-  const start    = weekMonday(firstDay);
+  const start    = weekSunday(firstDay);
   const weeks: Date[][] = [];
   let current = new Date(start);
   while (current <= lastDay || weeks.length < 4) {
@@ -56,6 +61,7 @@ function buildCalendarGrid(year: number, month: number): Date[][] {
 
 export default function CalendarView() {
   const today = new Date();
+  const todayKey = localDateKey(today);
   const [year, setYear]   = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const { fmtDist } = useUnits();
@@ -65,10 +71,12 @@ export default function CalendarView() {
     queryFn: getActivities,
   });
 
-  // Index activities by YYYY-MM-DD
+  // Index activities by local YYYY-MM-DD
   const byDate: Record<string, Activity[]> = {};
   for (const act of activities) {
-    const key = act.started_at.slice(0, 10);
+    // Parse as local time to avoid UTC-offset day shift
+    const local = new Date(act.started_at);
+    const key = localDateKey(local);
     if (!byDate[key]) byDate[key] = [];
     byDate[key].push(act);
   }
@@ -77,6 +85,17 @@ export default function CalendarView() {
   const monthLabel = new Date(year, month, 1).toLocaleString(undefined, {
     month: "long", year: "numeric",
   });
+
+  // Monthly summary: all activities whose started_at falls in this year/month
+  const monthActs = activities.filter((a) => {
+    const d = new Date(a.started_at);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+  const monthDistM = monthActs.reduce((s, a) => s + (a.distance_m ?? 0), 0);
+  const monthRuns  = monthActs.length;
+
+  // Key of the Monday of the week containing today (for row highlight)
+  const todayWeekMonday = localDateKey(weekSunday(today));
 
   function prevMonth() {
     if (month === 0) { setYear(y => y - 1); setMonth(11); }
@@ -90,7 +109,7 @@ export default function CalendarView() {
   return (
     <div className="p-4 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-bold text-gray-800">Calendar</h1>
         <div className="flex items-center gap-3">
           <button
@@ -115,56 +134,96 @@ export default function CalendarView() {
         </div>
       </div>
 
-      {/* Day header */}
-      <div className="grid grid-cols-7 mb-1">
+      {/* Monthly summary */}
+      <p className="text-xs text-gray-400 mb-4">
+        {monthRuns > 0
+          ? `${monthRuns} ${monthRuns === 1 ? "run" : "runs"} · ${fmtDist(monthDistM)}`
+          : "No activities this month"}
+      </p>
+
+      {/* Day header row (8 cols: 7 days + weekly total) */}
+      <div className="grid grid-cols-[repeat(7,1fr)_3.5rem] mb-1">
         {DAYS.map((d) => (
           <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
         ))}
+        <div className="text-center text-xs font-semibold text-gray-300 py-1">Total</div>
       </div>
 
       {/* Calendar grid */}
       <div className="border-t border-l border-gray-200 rounded-lg overflow-hidden">
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 border-b border-gray-200">
-            {week.map((day, di) => {
-              const key = day.toISOString().slice(0, 10);
-              const isCurrentMonth = day.getMonth() === month;
-              const isToday = key === today.toISOString().slice(0, 10);
-              const acts = byDate[key] ?? [];
+        {weeks.map((week, wi) => {
+          const weekKey = localDateKey(week[0]);
+          const isCurrentWeek = weekKey === todayWeekMonday;
+          // Sum distance for all activities in this week
+          const weekDistM = week.reduce((sum, day) => {
+            const acts = byDate[localDateKey(day)] ?? [];
+            return sum + acts.reduce((s, a) => s + (a.distance_m ?? 0), 0);
+          }, 0);
 
-              return (
-                <div
-                  key={di}
-                  className={`border-r border-gray-200 min-h-[88px] p-1.5 ${
-                    isCurrentMonth ? "bg-white" : "bg-gray-50"
-                  }`}
-                >
-                  <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
-                    isToday
-                      ? "bg-blue-600 text-white"
-                      : isCurrentMonth ? "text-gray-700" : "text-gray-300"
+          return (
+            <div
+              key={wi}
+              className={`grid grid-cols-[repeat(7,1fr)_3.5rem] border-b border-gray-200 ${
+                isCurrentWeek ? "bg-blue-50/40" : ""
+              }`}
+            >
+              {week.map((day, di) => {
+                const key = localDateKey(day);
+                const isCurrentMonth = day.getMonth() === month;
+                const isToday = key === todayKey;
+                const acts = byDate[key] ?? [];
+
+                return (
+                  <div
+                    key={di}
+                    className={`border-r border-gray-200 min-h-[88px] p-1.5 ${
+                      isCurrentMonth
+                        ? isCurrentWeek ? "" : "bg-white"
+                        : "bg-gray-50/70"
+                    }`}
+                  >
+                    <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
+                      isToday
+                        ? "bg-blue-600 text-white"
+                        : isCurrentMonth ? "text-gray-700" : "text-gray-300"
+                    }`}>
+                      {day.getDate()}
+                    </div>
+                    <div className="space-y-0.5">
+                      {acts.map((act) => (
+                        <Link
+                          key={act.id}
+                          to={`/activities/${act.id}`}
+                          className={`block text-xs px-1.5 py-0.5 rounded border truncate hover:opacity-80 transition-opacity ${sportColor(act.sport_type)}`}
+                          title={`${formatActivityName(act)} — ${fmtDist(act.distance_m)}`}
+                        >
+                          <span className="font-medium">{fmtDist(act.distance_m)}</span>
+                          {" "}
+                          <span className="opacity-75">{formatActivityName(act)}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Weekly total column */}
+              <div className={`border-r border-gray-200 min-h-[88px] flex flex-col items-center justify-center ${
+                isCurrentWeek ? "" : "bg-gray-50/50"
+              }`}>
+                {weekDistM > 0 ? (
+                  <span className={`text-xs font-semibold tabular-nums ${
+                    isCurrentWeek ? "text-blue-700" : "text-gray-500"
                   }`}>
-                    {day.getDate()}
-                  </div>
-                  <div className="space-y-0.5">
-                    {acts.map((act) => (
-                      <Link
-                        key={act.id}
-                        to={`/activities/${act.id}`}
-                        className={`block text-xs px-1.5 py-0.5 rounded border truncate hover:opacity-80 transition-opacity ${sportColor(act.sport_type)}`}
-                        title={`${formatActivityName(act)} — ${fmtDist(act.distance_m)}`}
-                      >
-                        <span className="font-medium">{fmtDist(act.distance_m)}</span>
-                        {" "}
-                        <span className="opacity-75">{formatActivityName(act)}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                    {fmtDist(weekDistM)}
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-200">—</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

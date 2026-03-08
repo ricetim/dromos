@@ -1,7 +1,19 @@
+from sqlalchemy import event
 from sqlmodel import SQLModel, create_engine, Session, select
 from app.config import DATABASE_URL
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, _record):
+    """Apply SQLite performance settings on every new connection."""
+    cur = dbapi_connection.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")       # concurrent reads during writes
+    cur.execute("PRAGMA cache_size=-32000")       # 32 MB page cache
+    cur.execute("PRAGMA synchronous=NORMAL")      # safe durability with WAL
+    cur.execute("PRAGMA temp_store=MEMORY")       # temp tables in RAM
+    cur.close()
 
 
 def _add_column(conn, table: str, column: str, col_type: str) -> None:
@@ -23,6 +35,33 @@ def create_db_and_tables():
         _add_column(conn, "activity", "rpe", "INTEGER")
         _add_column(conn, "activity", "name", "TEXT")
         _add_column(conn, "plannedworkout", "optional", "INTEGER DEFAULT 0")
+        _add_column(conn, "activity", "elevation_loss_m", "REAL")
+        _add_column(conn, "shoe", "strava_gear_id", "TEXT")
+        _add_column(conn, "activity", "weather_temp_c", "REAL")
+        _add_column(conn, "activity", "weather_feels_like_c", "REAL")
+        _add_column(conn, "activity", "weather_precip_mm", "REAL")
+        _add_column(conn, "activity", "weather_cloud_pct", "INTEGER")
+        _add_column(conn, "activity", "weather_wind_kph", "REAL")
+        _add_column(conn, "activity", "weather_condition", "TEXT")
+        _add_column(conn, "activity", "weather_is_daytime", "INTEGER")
+
+        # Back-fill avg_pace_s_per_km using correct formula: duration_s / (distance_m / 1000)
+        # The old formula (mean of 1000/speed per datapoint) over-weighted slow segments.
+        conn.exec_driver_sql(
+            "UPDATE activity SET avg_pace_s_per_km = "
+            "CAST(duration_s AS REAL) / (distance_m / 1000.0) "
+            "WHERE distance_m > 0"
+        )
+
+        # Performance indexes — safe to run repeatedly (IF NOT EXISTS)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_dp_activity_ts "
+            "ON datapoint(activity_id, timestamp)"
+        )
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_activity_started_at "
+            "ON activity(started_at DESC)"
+        )
         conn.commit()
     # Seed singleton UserProfile if not present
     from app.models import UserProfile

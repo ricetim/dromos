@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getShoes, createShoe, updateShoe } from "../api/client";
+import { getShoes, createShoe, updateShoe, triggerSync, getSyncStatus } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 
 interface Shoe {
@@ -24,6 +24,46 @@ function MileageBar({ used, limit }: { used: number; limit: number }) {
 }
 
 const KM_PER_MI = 1.60934;
+
+function StravaSync({ onSynced }: { onSynced: () => void }) {
+  const { data: syncStatus } = useQuery({
+    queryKey: ["sync-status"],
+    queryFn: getSyncStatus,
+    refetchInterval: 5000,   // poll while syncing
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: triggerSync,
+    onSuccess: () => {
+      // Refetch status after a short delay to let the background task start
+      setTimeout(() => onSynced(), 4000);
+    },
+  });
+
+  const status = syncStatus?.status ?? "never";
+  const lastTs = syncStatus?.ts ? new Date(syncStatus.ts).toLocaleTimeString() : null;
+
+  return (
+    <div className="flex items-center gap-2">
+      {status === "ok" && lastTs && (
+        <span className="text-xs text-gray-400">Synced {lastTs}</span>
+      )}
+      {status === "error" && (
+        <span className="text-xs text-red-500" title={syncStatus?.error}>Sync error</span>
+      )}
+      <button
+        onClick={() => syncMutation.mutate()}
+        disabled={syncMutation.isPending}
+        className="px-3 py-1.5 text-sm border border-orange-400 text-orange-600 rounded-lg hover:bg-orange-50 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+      >
+        <svg className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114.93-2M20 15a8 8 0 01-14.93 2" />
+        </svg>
+        {syncMutation.isPending ? "Syncing…" : "Sync Strava"}
+      </button>
+    </div>
+  );
+}
 
 export default function Gear() {
   const qc = useQueryClient();
@@ -65,14 +105,17 @@ export default function Gear() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-gray-800">Gear</h1>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          + Add Shoe
-        </button>
+        <div className="flex items-center gap-2">
+          <StravaSync onSynced={() => qc.invalidateQueries({ queryKey: ["shoes"] })} />
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            + Add Shoe
+          </button>
+        </div>
       </div>
 
       {showForm && (

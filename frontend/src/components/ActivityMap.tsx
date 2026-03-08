@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, Polyline, Marker, Popup, CircleMarker, useMap } from "react-leaflet";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { DataPoint, Photo } from "../types";
@@ -14,6 +14,27 @@ L.Icon.Default.mergeOptions({
     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+// Tiles are served via the local caching proxy (/api/tiles/{provider}/{z}/{x}/{y}.png).
+// First fetch hits the upstream provider; all subsequent loads are served from disk.
+const TILE_LAYERS = {
+  light: {
+    label: "Light",
+    url: "/api/tiles/light/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://openstreetmap.org">OSM</a> &copy; <a href="https://carto.com">CARTO</a>',
+  },
+  standard: {
+    label: "Standard",
+    url: "/api/tiles/standard/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  },
+  dark: {
+    label: "Dark",
+    url: "/api/tiles/dark/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://openstreetmap.org">OSM</a> &copy; <a href="https://carto.com">CARTO</a>',
+  },
+} as const;
+type TileKey = keyof typeof TILE_LAYERS;
+
 const cameraIcon = L.divIcon({
   html: `<div style="font-size:20px;line-height:1;cursor:pointer" title="Photo">📷</div>`,
   className: "",
@@ -21,11 +42,28 @@ const cameraIcon = L.divIcon({
   iconAnchor: [12, 12],
 });
 
+// [lat, lon, speed_m_s | null] — compact format from /track endpoint
+type TrackPoint = [number, number, number | null];
+
+export interface ActivityMapHandle {
+  updateHover(lat: number | null, lon: number | null): void;
+}
+
 interface Props {
   datapoints: DataPoint[];
+  preloadedTrack?: TrackPoint[];  // fast-loading GPS+speed; if provided, used for map rendering
   photos?: Photo[];
   highlightRange?: [number, number] | null;
-  hoverIndex?: number | null;
+}
+
+/** Captures the Leaflet map instance and manages the imperative hover dot. */
+function HoverDotLayer({ dotRef }: { dotRef: React.MutableRefObject<L.CircleMarker | null> }) {
+  const map = useMap();
+  useEffect(() => {
+    // Store map on dot ref container so the parent can call addTo/remove
+    (dotRef as any)._map = map;
+  }, [map, dotRef]);
+  return null;
 }
 
 /** Fits the map to the highlighted segment when set, else the full track. */
@@ -59,8 +97,17 @@ function ColouredTrack({
 }) {
   return (
     <>
+      {/* Dark outer shadow for contrast */}
       {segments.map((seg, i) => (
-        <Polyline key={i} positions={seg.coords} color={seg.colour} weight={3} />
+        <Polyline key={`shadow-${i}`} positions={seg.coords} color="#000000" weight={6} opacity={0.15} />
+      ))}
+      {/* White outline layer */}
+      {segments.map((seg, i) => (
+        <Polyline key={`outline-${i}`} positions={seg.coords} color="#ffffff" weight={5} opacity={0.9} />
+      ))}
+      {/* Coloured track on top */}
+      {segments.map((seg, i) => (
+        <Polyline key={`track-${i}`} positions={seg.coords} color={seg.colour} weight={3} />
       ))}
     </>
   );
@@ -100,16 +147,60 @@ function buildPaceSegments(
   return segments;
 }
 
-export default function ActivityMap({ datapoints, photos = [], highlightRange, hoverIndex }: Props) {
-  const coords: [number, number][] = useMemo(
-    () =>
-      datapoints
-        .filter((dp) => dp.lat !== null && dp.lon !== null)
-        .map((dp) => [dp.lat!, dp.lon!]),
-    [datapoints]
-  );
+const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
+  { datapoints, preloadedTrack, photos = [], highlightRange }: Props,
+  ref,
+) {
+  const [tileKey, setTileKey] = useState<TileKey>("light");
+  const hoverDotRef = useRef<L.CircleMarker | null>(null);
 
-  const paceSegments = useMemo(() => buildPaceSegments(datapoints), [datapoints]);
+  useImperativeHandle(ref, () => ({
+    updateHover(lat: number | null, lon: number | null) {
+      const map: L.Map | undefined = (hoverDotRef as any)._map;
+      if (hoverDotRef.current) {
+        hoverDotRef.current.remove();
+        hoverDotRef.current = null;
+      }
+      if (lat != null && lon != null && map) {
+        hoverDotRef.current = L.circleMarker([lat, lon], {
+          radius: 7,
+          color: "#fff",
+          fillColor: "#3b82f6",
+          fillOpacity: 1,
+          weight: 2,
+        }).addTo(map);
+      }
+    },
+  }));
+
+  // Use preloadedTrack for coords + pace segments if available (loads fast).
+  // Full datapoints are still used for hover marker and highlight range.
+  const coords: [number, number][] = useMemo(() => {
+    if (preloadedTrack?.length) return preloadedTrack.map(([lat, lon]) => [lat, lon]);
+    return datapoints
+      .filter((dp) => dp.lat !== null && dp.lon !== null)
+      .map((dp) => [dp.lat!, dp.lon!]);
+  }, [preloadedTrack, datapoints]);
+
+  const paceSegments = useMemo(() => {
+    if (preloadedTrack?.length) {
+      const pts = preloadedTrack.filter(([,, s]) => s !== null);
+      if (pts.length < 2) return [];
+      const speeds = pts.map(([,, s]) => s!);
+      const minSpeed = Math.min(...speeds);
+      const maxSpeed = Math.max(...speeds);
+      const spd_range = maxSpeed - minSpeed || 1;
+      return pts.slice(0, -1).map((pt, i) => {
+        const next = pts[i + 1];
+        const t = (pt[2]! - minSpeed) / spd_range;
+        const r = t < 0.5 ? 239 : Math.round(239 - (t - 0.5) * 2 * (239 - 34));
+        const g = t < 0.5 ? Math.round(t * 2 * 163) : Math.round(163 + (t - 0.5) * 2 * (197 - 163));
+        const b = t < 0.5 ? 68 : Math.round(68 + (t - 0.5) * 2 * (94 - 68));
+        return { coords: [[pt[0], pt[1]], [next[0], next[1]]] as [number, number][], colour: `rgb(${r},${g},${b})` };
+      });
+    }
+    return buildPaceSegments(datapoints);
+  }, [preloadedTrack, datapoints]);
 
   const highlighted: [number, number][] = useMemo(() => {
     if (!highlightRange) return [];
@@ -132,17 +223,33 @@ export default function ActivityMap({ datapoints, photos = [], highlightRange, h
     );
   }
 
+  const tile = TILE_LAYERS[tileKey];
+
   return (
+    <div className="relative">
+      {/* Tile layer selector */}
+      <div className="absolute top-2 right-2 z-[1000] flex gap-1 bg-white/90 backdrop-blur-sm rounded-lg border border-gray-200 shadow px-1.5 py-1">
+        {(Object.keys(TILE_LAYERS) as TileKey[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setTileKey(k)}
+            className={`px-2 py-0.5 text-xs rounded transition-colors ${
+              tileKey === k
+                ? "bg-gray-800 text-white"
+                : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            {TILE_LAYERS[k].label}
+          </button>
+        ))}
+      </div>
     <MapContainer
       center={coords[0]}
       zoom={13}
       style={{ height: 420, borderRadius: 8 }}
       className="z-0"
     >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-      />
+      <TileLayer url={tile.url} attribution={tile.attribution} />
       <FitBounds
         coords={coords}
         highlightedCoords={highlighted.length >= 2 ? highlighted : undefined}
@@ -152,26 +259,19 @@ export default function ActivityMap({ datapoints, photos = [], highlightRange, h
       {paceSegments.length > 0 ? (
         <ColouredTrack segments={paceSegments} />
       ) : (
-        <Polyline positions={coords} color="#3b82f6" weight={3} />
+        <>
+          <Polyline positions={coords} color="#ffffff" weight={5} opacity={0.8} />
+          <Polyline positions={coords} color="#3b82f6" weight={3} />
+        </>
       )}
 
       {/* Brush-selected highlight */}
       {highlighted.length > 1 && (
-        <Polyline positions={highlighted} color="#f97316" weight={6} opacity={0.8} />
+        <Polyline positions={highlighted} color="#f97316" weight={5} opacity={0.9} />
       )}
 
-      {/* Chart hover position */}
-      {hoverIndex != null && (() => {
-        const dp = datapoints[hoverIndex];
-        if (!dp || dp.lat == null || dp.lon == null) return null;
-        return (
-          <CircleMarker
-            center={[dp.lat, dp.lon]}
-            radius={7}
-            pathOptions={{ color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}
-          />
-        );
-      })()}
+      {/* Imperative hover dot — updated directly without React re-renders */}
+      <HoverDotLayer dotRef={hoverDotRef} />
 
       {/* GPS-tagged photo markers */}
       {gpsPhotos.map((photo) => (
@@ -190,5 +290,8 @@ export default function ActivityMap({ datapoints, photos = [], highlightRange, h
         </Marker>
       ))}
     </MapContainer>
+    </div>
   );
-}
+});
+
+export default ActivityMap;

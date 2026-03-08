@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
 import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
@@ -287,6 +288,64 @@ function FeaturedActivity({ act }: { act: Activity }) {
   );
 }
 
+// ── weekly volume chart ───────────────────────────────────────────────────────
+
+function isoMonday(d: Date): string {
+  const m = new Date(d);
+  m.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${m.getMonth() + 1}/${m.getDate()}`;
+}
+
+function WeeklyVolume({ acts }: { acts: Activity[] }) {
+  const { fmtDist, system } = useUnits();
+
+  const weeks = useMemo(() => {
+    const now = new Date();
+    const buckets: { week: string; km: number }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i * 7);
+      buckets.push({ week: isoMonday(d), km: 0 });
+    }
+    const keySet = new Set(buckets.map((b) => b.week));
+    for (const act of acts) {
+      const key = isoMonday(new Date(act.started_at));
+      if (keySet.has(key)) {
+        const b = buckets.find((b) => b.week === key)!;
+        b.km += act.distance_m / 1000;
+      }
+    }
+    return buckets.map((b) => ({
+      week: b.week,
+      value: system === "imperial" ? +(b.km * 0.621371).toFixed(1) : +b.km.toFixed(1),
+    }));
+  }, [acts, system]);
+
+  const maxVal = Math.max(...weeks.map((w) => w.value), 0);
+  if (maxVal === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">
+        Weekly Volume <span className="font-normal text-gray-400 text-xs">(last 12 weeks)</span>
+      </h2>
+      <ResponsiveContainer width="100%" height={120}>
+        <BarChart data={weeks} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="20%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+          <XAxis dataKey="week" tick={{ fontSize: 10 }} interval={2} />
+          <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v) => fmtDist(v * 1000)} domain={[0, "auto"]} />
+          <Tooltip
+            formatter={(v: number) => [fmtDist(v * 1000), system === "imperial" ? "Miles" : "km"]}
+            labelFormatter={(l) => `Week of ${l}`}
+            contentStyle={{ fontSize: 12 }}
+          />
+          <Bar dataKey="value" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 // ── main Dashboard ────────────────────────────────────────────────────────────
 
 const PERIODS = ["week", "month", "year", "all"] as const;
@@ -346,6 +405,9 @@ export default function Dashboard() {
           sub={summary ? `${fmtElev(summary.total_elevation_m)} gain` : "–"}
         />
       </div>
+
+      {/* Weekly volume */}
+      <WeeklyVolume acts={allActs} />
 
       {/* Most recent activity — large card */}
       {latestAct && (
