@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from app.models import Activity, DataPoint, Goal, Shoe, TrainingPlan
 from app.services.builder import rebuild_activity, rebuild_globals, rebuild_all, _tile_xy
+from app.services.builder import _compute_eddington, _compute_yearly
 
 
 @pytest.fixture
@@ -92,6 +93,45 @@ def test_rebuild_globals_empty_db(session, tmp_path):
     rebuild_globals(session, static_dir=tmp_path)
     acts = json.loads((tmp_path / "activities.json").read_text())
     assert acts == []
+
+
+def test_eddington_simple():
+    # 5 days each >= 5 miles -> E=5; only 4 days >= 6 miles -> E=5 still
+    daily_miles = {
+        "2024-01-01": 5.1,
+        "2024-01-02": 5.5,
+        "2024-01-03": 6.0,
+        "2024-01-04": 6.2,
+        "2024-01-05": 5.0,
+    }
+    result = _compute_eddington(daily_miles)
+    assert result["current_e"] == 5
+    assert isinstance(result["next_e_gap"], int)
+    assert result["next_e_gap"] == 1  # need 1 more day >= 6 miles
+
+
+def test_eddington_zero_when_no_data():
+    result = _compute_eddington({})
+    assert result["current_e"] == 0
+    assert result["next_e_gap"] == 1
+
+
+def test_eddington_history_grows():
+    daily_miles = {f"2024-01-{i:02d}": float(i) for i in range(1, 10)}
+    result = _compute_eddington(daily_miles)
+    history = result["history"]
+    assert len(history) > 0
+    assert history[-1]["e"] == result["current_e"]
+
+
+def test_yearly_groups_by_week():
+    acts = [
+        {"started_at": "2024-01-08T08:00:00", "distance_m": 10000},
+        {"started_at": "2023-01-09T08:00:00", "distance_m": 8000},
+    ]
+    result = _compute_yearly(acts)
+    assert "2024" in result["years"]
+    assert "2023" in result["years"]
 
 
 def test_rebuild_all(session, act, tmp_path):

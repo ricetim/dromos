@@ -137,16 +137,108 @@ def _prefetch_tiles(gps_rows: list, tile_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Metrics helpers
+# ---------------------------------------------------------------------------
+
+_MILE_M = 1609.344
+
+
+def _compute_eddington(daily_miles: dict[str, float]) -> dict:
+    """
+    Compute current Eddington number and its growth history.
+    daily_miles: {date_iso_str: total_miles_that_day}
+    Returns: {current_e, next_e_gap, history: [{date, e}]}
+    """
+    if not daily_miles:
+        return {"current_e": 0, "next_e_gap": 1, "history": []}
+
+    sorted_days = sorted(daily_miles.items())  # chronological
+    max_miles = int(max(daily_miles.values())) + 2
+
+    # counts[n] = number of days with distance >= n miles (1-indexed)
+    counts = [0] * (max_miles + 1)
+    current_e = 0
+    history: list[dict] = []
+
+    for day_str, miles in sorted_days:
+        n = min(int(miles), max_miles)
+        for i in range(1, n + 1):
+            counts[i] += 1
+        # Advance E as far as possible
+        while current_e + 1 <= max_miles and counts[current_e + 1] >= current_e + 1:
+            current_e += 1
+            history.append({"date": day_str, "e": current_e})
+
+    next_e_gap = (current_e + 1) - len(daily_miles)
+    return {
+        "current_e": current_e,
+        "next_e_gap": max(0, next_e_gap),
+        "history": history,
+    }
+
+
+def _compute_yearly(acts: list[dict]) -> dict:
+    """
+    Group activity distances by ISO year and week number.
+    acts: list of dicts with 'started_at' (ISO str or datetime) and 'distance_m'.
+    Returns: {years: {str_year: [{week, km}]}}
+    """
+    from collections import defaultdict
+    weekly: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+
+    for a in acts:
+        started = a["started_at"]
+        if isinstance(started, str):
+            dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        else:
+            dt = started
+        year = str(dt.isocalendar()[0])  # ISO year
+        week = dt.isocalendar()[1]        # ISO week 1-53
+        weekly[year][week] += a["distance_m"] / 1000.0  # km
+
+    years_out = {}
+    for year, weeks in sorted(weekly.items()):
+        years_out[year] = [
+            {"week": w, "km": round(km, 2)}
+            for w, km in sorted(weeks.items())
+        ]
+    return {"years": years_out}
+
+
+def _rebuild_metrics(session: Session, static_dir: Path) -> None:
+    from app.models import Activity
+    from collections import defaultdict
+
+    acts = session.exec(
+        select(Activity).order_by(Activity.started_at)
+    ).all()
+
+    # Aggregate distance per calendar day (miles)
+    daily: dict[str, float] = defaultdict(float)
+    for a in acts:
+        day = a.started_at.date().isoformat()
+        daily[day] += a.distance_m / _MILE_M
+
+    act_dicts = [{"started_at": a.started_at, "distance_m": a.distance_m} for a in acts]
+
+    _write_json(static_dir / "metrics.json", {
+        "eddington": _compute_eddington(dict(daily)),
+        "yearly": _compute_yearly(act_dicts),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Global files rebuild
 # ---------------------------------------------------------------------------
 
 def rebuild_globals(session: Session, static_dir: Path = STATIC_DIR) -> None:
-    """Rebuild activities.json, dashboard.json, goals.json, shoes.json, plans.json."""
+    """Rebuild activities.json, dashboard.json, goals.json, shoes.json, plans.json, metrics.json."""
     _rebuild_activities(session, static_dir)
     _rebuild_dashboard(session, static_dir)
     _rebuild_goals(session, static_dir)
     _rebuild_shoes(session, static_dir)
     _rebuild_plans(session, static_dir)
+    _rebuild_metrics(session, static_dir)
 
 
 def _rebuild_activities(session: Session, static_dir: Path) -> None:
