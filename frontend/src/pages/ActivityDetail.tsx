@@ -1,12 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getActivity, getDataPoints, getPhotos } from "../api/client";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot } from "../api/client";
 import { Activity, DataPoint, Photo } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
-import ActivityMap from "../components/ActivityMap";
+import ActivityMap, { ActivityMapHandle } from "../components/ActivityMap";
 import ActivityCharts from "../components/ActivityCharts";
 import PhotoGallery from "../components/PhotoGallery";
+
+interface Lap {
+  id: number;
+  lap_number: number;
+  start_elapsed_s: number;
+  end_elapsed_s: number;
+  distance_m: number;
+  duration_s: number;
+  avg_hr: number | null;
+  avg_pace_s_per_km: number | null;
+  elevation_gain_m: number | null;
+}
 
 // formatPace is provided by useUnits()
 
@@ -18,12 +30,49 @@ function formatDuration(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+const RPE_COLORS = ["", "text-blue-500", "text-green-500", "text-yellow-500", "text-orange-500", "text-red-500"];
+
+const WEATHER_EMOJI: Record<string, string> = {
+  "Clear": "☀️",
+  "Partly cloudy": "⛅",
+  "Overcast": "☁️",
+  "Fog": "🌫️",
+  "Rain": "🌧️",
+  "Snow": "❄️",
+  "Thunderstorm": "⛈️",
+};
+
+function WeatherBanner({ activity }: { activity: Activity }) {
+  if (!activity.weather_condition) return null;
+  const emoji = WEATHER_EMOJI[activity.weather_condition] ?? "🌡️";
+  const temp = activity.weather_temp_c != null ? `${Math.round(activity.weather_temp_c)}°C` : null;
+  const feelsLike = activity.weather_feels_like_c != null &&
+    Math.abs(activity.weather_feels_like_c - (activity.weather_temp_c ?? 0)) > 2
+    ? `feels ${Math.round(activity.weather_feels_like_c)}°` : null;
+  const precip = activity.weather_precip_mm != null && activity.weather_precip_mm > 0.1
+    ? `${activity.weather_precip_mm.toFixed(1)} mm` : null;
+  const cloud = activity.weather_cloud_pct != null ? `${activity.weather_cloud_pct}% cloud` : null;
+  const timeOfDay = activity.weather_is_daytime === false ? "🌙 Before/after daylight" : null;
+
+  const parts = [temp, feelsLike, precip, cloud, timeOfDay].filter(Boolean);
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
-      <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+    <div className="flex items-center gap-3 pt-3 mt-3 border-t border-gray-100 text-sm text-gray-600 flex-wrap">
+      <span className="text-lg leading-none">{emoji}</span>
+      <span className="font-medium text-gray-700">{activity.weather_condition}</span>
+      {parts.map((p, i) => (
+        <span key={i} className="text-gray-500">{p}</span>
+      ))}
+    </div>
+  );
+}
+
+function StatCell({ label, value, sub, valueColor }: { label: string; value: string; sub?: string; valueColor?: string }) {
+  return (
+    <div className="flex flex-col items-center px-4 first:pl-0 last:pr-0 border-l first:border-l-0 border-gray-200">
+      <span className={`text-xl font-bold tabular-nums leading-tight ${valueColor ?? "text-gray-900"}`}>{value}</span>
+      {sub && <span className="text-xs text-gray-400 leading-none mt-0.5">{sub}</span>}
+      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mt-1">{label}</span>
     </div>
   );
 }
@@ -36,7 +85,7 @@ function RangeSummary({
   datapoints: DataPoint[];
   range: [number, number];
 }) {
-  const { fmtDist, fmtPace } = useUnits();
+  const { fmtDist, fmtPace, fmtElev } = useUnits();
   const slice = datapoints.slice(range[0], range[1] + 1);
   if (slice.length < 2) return null;
 
@@ -54,13 +103,191 @@ function RangeSummary({
   const hrs = slice.filter((d) => d.heart_rate).map((d) => d.heart_rate!);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
 
+  // Net elevation: end altitude minus start altitude (positive = gain, negative = loss)
+  const altFirst = slice.find((d) => d.altitude_m != null)?.altitude_m ?? null;
+  const altLast = [...slice].reverse().find((d) => d.altitude_m != null)?.altitude_m ?? null;
+  const netElev = altFirst != null && altLast != null ? altLast - altFirst : null;
+
   return (
     <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
       <span className="font-medium text-orange-700 mr-3">Selected range:</span>
       <span className="text-gray-700 mr-4">{fmtDist(distM)}</span>
       <span className="text-gray-700 mr-4">{formatDuration(durationS)}</span>
       {avgPace && <span className="text-gray-700 mr-4">{fmtPace(avgPace)}</span>}
-      {avgHr && <span className="text-gray-700">{avgHr} bpm avg</span>}
+      {avgHr && <span className="text-gray-700 mr-4">{avgHr} bpm avg</span>}
+      {netElev != null && (
+        <span className={netElev >= 0 ? "text-green-700" : "text-red-600"}>
+          {netElev >= 0 ? "+" : "−"}{fmtElev(Math.abs(netElev))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LapTable({
+  laps,
+  activeLap,
+  onLapClick,
+}: {
+  laps: Lap[];
+  activeLap: number | null;
+  onLapClick: (lap: Lap) => void;
+}) {
+  const { fmtPace } = useUnits();
+  if (!laps.length) return null;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-4">
+      <h2 className="text-sm font-semibold text-gray-700 mb-2">Laps</h2>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-gray-400 uppercase border-b border-gray-100">
+            <th className="text-left pb-1.5">#</th>
+            <th className="text-right pb-1.5">Time</th>
+            <th className="text-right pb-1.5 pl-2">Pace</th>
+          </tr>
+        </thead>
+        <tbody>
+          {laps.map((lap) => {
+            const isActive = activeLap === lap.lap_number;
+            return (
+              <tr
+                key={lap.id}
+                onClick={() => onLapClick(lap)}
+                className={`cursor-pointer border-b border-gray-50 transition-colors ${
+                  isActive ? "bg-orange-50 font-semibold" : "hover:bg-gray-50"
+                }`}
+              >
+                <td className="py-1.5 text-gray-500">{lap.lap_number}</td>
+                <td className="py-1.5 text-right text-gray-800 tabular-nums">
+                  {formatDuration(Math.round(lap.duration_s))}
+                </td>
+                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
+                  {lap.avg_pace_s_per_km ? fmtPace(lap.avg_pace_s_per_km) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── HR Zone breakdown ─────────────────────────────────────────────────────────
+
+const HR_ZONES = [
+  { label: "Easy (E)",       pctLo: 0,    pctHi: 0.79, colour: "#3b82f6" },
+  { label: "Marathon (M)",   pctLo: 0.79, pctHi: 0.89, colour: "#22c55e" },
+  { label: "Threshold (T)",  pctLo: 0.89, pctHi: 0.92, colour: "#f59e0b" },
+  { label: "Hard (I+)",      pctLo: 0.92, pctHi: 1.0,  colour: "#ef4444" },
+];
+
+function HrZones({ datapoints, hrMax }: { datapoints: DataPoint[]; hrMax: number }) {
+  const zoneTimes = useMemo(() => {
+    const totals = HR_ZONES.map(() => 0);
+    for (let i = 1; i < datapoints.length; i++) {
+      const hr = datapoints[i].heart_rate;
+      if (hr == null) continue;
+      const dt = (new Date(datapoints[i].timestamp).getTime() - new Date(datapoints[i - 1].timestamp).getTime()) / 1000;
+      if (dt <= 0 || dt > 60) continue;
+      const pct = hr / hrMax;
+      for (let z = HR_ZONES.length - 1; z >= 0; z--) {
+        if (pct >= HR_ZONES[z].pctLo) { totals[z] += dt; break; }
+      }
+    }
+    return totals;
+  }, [datapoints, hrMax]);
+
+  const total = zoneTimes.reduce((a, b) => a + b, 0);
+  if (total < 30) return null;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">
+        HR Zones <span className="font-normal text-gray-400 text-xs">(HRmax {hrMax} bpm)</span>
+      </h2>
+      <div className="space-y-2">
+        {HR_ZONES.map((zone, i) => {
+          const pct = total > 0 ? (zoneTimes[i] / total) * 100 : 0;
+          const mins = Math.floor(zoneTimes[i] / 60);
+          const secs = Math.round(zoneTimes[i] % 60);
+          return (
+            <div key={zone.label} className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 w-28 flex-shrink-0">{zone.label}</span>
+              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${pct.toFixed(1)}%`, backgroundColor: zone.colour }}
+                />
+              </div>
+              <span className="text-xs tabular-nums text-gray-600 w-20 text-right">
+                {mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}
+                <span className="text-gray-400 ml-1">({pct.toFixed(0)}%)</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Best Efforts for this activity ────────────────────────────────────────────
+
+type PBEntry = { rank: number; time_s: number; activity_id: number; start_elapsed_s: number; end_elapsed_s: number };
+type PBData = Record<string, PBEntry[] | null>;
+
+function fmtTime(s: number): string {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+const RANK_COLORS = ["text-yellow-500", "text-gray-400", "text-orange-400"];
+
+function BestEfforts({ actId, onSegmentSelect }: { actId: number; onSegmentSelect: (start: number, end: number) => void }) {
+  const { data: pbs } = useQuery<PBData>({
+    queryKey: ["personal-bests"],
+    queryFn: getPersonalBests,
+    staleTime: Infinity,
+  });
+
+  const efforts = useMemo(() => {
+    if (!pbs) return [];
+    return Object.entries(pbs)
+      .flatMap(([dist, entries]) =>
+        (entries ?? []).filter((e) => e.activity_id === actId).map((e) => ({ dist, ...e }))
+      )
+      .sort((a, b) => {
+        const distOrder = ["400m","800m","1k","1 mile","2 mile","3k","5k","8k","10k","15k","10 mile","20k","half","25k","30k","marathon"];
+        return distOrder.indexOf(a.dist) - distOrder.indexOf(b.dist);
+      });
+  }, [pbs, actId]);
+
+  if (!efforts.length) return null;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Best Efforts in This Run</h2>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {efforts.map((e) => (
+          <button
+            key={e.dist}
+            onClick={() => onSegmentSelect(e.start_elapsed_s, e.end_elapsed_s)}
+            className="flex items-center justify-between text-xs rounded hover:bg-blue-50 px-1.5 py-1 transition-colors text-left"
+          >
+            <span className="text-gray-600 font-medium w-16">{e.dist}</span>
+            <span className="font-mono text-gray-900">{fmtTime(e.time_s)}</span>
+            <span className={`ml-1.5 font-semibold ${RANK_COLORS[e.rank - 1] ?? "text-gray-400"}`}>
+              #{e.rank}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-2">Click a segment to zoom the chart</p>
     </div>
   );
 }
@@ -72,42 +299,86 @@ export default function ActivityDetail() {
   const segStart = searchParams.get("seg_start") ? parseFloat(searchParams.get("seg_start")!) : null;
   const segEnd = searchParams.get("seg_end") ? parseFloat(searchParams.get("seg_end")!) : null;
   const [brushRange, setBrushRange] = useState<[number, number] | null>(null);
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [activeLap, setActiveLap] = useState<number | null>(null);
+  const mapRef = useRef<ActivityMapHandle>(null);
   const { fmtDist, fmtPace, fmtElev } = useUnits();
 
-  const { data: act, isLoading: actLoading } = useQuery<Activity>({
-    queryKey: ["activity", actId],
-    queryFn: () => getActivity(actId),
+  // Combined endpoint: activity + laps + track in one shot
+  const { data: full, isLoading: fullLoading } = useQuery<{
+    activity: Activity;
+    laps: Lap[];
+    track: [number, number, number | null][];
+  }>({
+    queryKey: ["activity-full", actId],
+    queryFn: () => getActivityFull(actId),
+    staleTime: Infinity,  // activity data never changes
   });
+
+  const act = full?.activity;
+  const laps = full?.laps ?? [];
+  const track = full?.track;
 
   const { data: datapoints = [], isLoading: dpLoading } = useQuery<DataPoint[]>({
     queryKey: ["datapoints", actId],
     queryFn: () => getDataPoints(actId),
+    staleTime: Infinity,  // GPS points never change after import
   });
+
+  const handleHoverIndex = useCallback((idx: number | null) => {
+    if (idx == null) { mapRef.current?.updateHover(null, null); return; }
+    const dp = datapoints[idx];
+    if (dp?.lat != null && dp?.lon != null) mapRef.current?.updateHover(dp.lat, dp.lon);
+    else mapRef.current?.updateHover(null, null);
+  }, [datapoints]);
 
   const { data: photos = [] } = useQuery<Photo[]>({
     queryKey: ["photos", actId],
     queryFn: () => getPhotos(actId),
+    staleTime: Infinity,
   });
+
+  const { data: vdot } = useQuery<{ hr_max: number; hr_rest: number }>({
+    queryKey: ["vdot"],
+    queryFn: getVdot,
+    staleTime: Infinity,
+  });
+  const hrMax = vdot?.hr_max ?? 185;
+
+  // Convert elapsed seconds → nearest datapoint index
+  function elapsedToIdx(targetS: number): number {
+    if (!datapoints.length) return 0;
+    const t0 = new Date(datapoints[0].timestamp).getTime();
+    let best = 0, bestDiff = Infinity;
+    for (let i = 0; i < datapoints.length; i++) {
+      const diff = Math.abs((new Date(datapoints[i].timestamp).getTime() - t0) / 1000 - targetS);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    return best;
+  }
 
   // Auto-zoom to personal-best segment when seg_start/seg_end query params are present
   useEffect(() => {
     if (!datapoints.length || segStart === null) return;
-    const t0 = new Date(datapoints[0].timestamp).getTime();
-    const toIdx = (targetS: number) => {
-      let best = 0;
-      let bestDiff = Infinity;
-      for (let i = 0; i < datapoints.length; i++) {
-        const diff = Math.abs((new Date(datapoints[i].timestamp).getTime() - t0) / 1000 - targetS);
-        if (diff < bestDiff) { bestDiff = diff; best = i; }
-      }
-      return best;
-    };
-    setBrushRange([toIdx(segStart), toIdx(segEnd ?? segStart)]);
+    setBrushRange([elapsedToIdx(segStart), elapsedToIdx(segEnd ?? segStart)]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datapoints.length > 0]);
 
-  if (actLoading) {
+  function handleBestEffortSelect(startS: number, endS: number) {
+    setActiveLap(null);
+    setBrushRange([elapsedToIdx(startS), elapsedToIdx(endS)]);
+  }
+
+  function handleLapClick(lap: Lap) {
+    if (activeLap === lap.lap_number) {
+      setActiveLap(null);
+      setBrushRange(null);
+    } else {
+      setActiveLap(lap.lap_number);
+      setBrushRange([elapsedToIdx(lap.start_elapsed_s), elapsedToIdx(lap.end_elapsed_s)]);
+    }
+  }
+
+  if (fullLoading) {
     return <div className="p-6 text-gray-500">Loading activity…</div>;
   }
   if (!act) {
@@ -129,107 +400,149 @@ export default function ActivityDetail() {
   });
 
   return (
-    <div className="p-4 max-w-5xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <Link to="/activities" className="text-sm text-blue-600 hover:underline mb-1 block">
-            ← Activities
-          </Link>
-          <h1 className="text-2xl font-bold text-gray-900 capitalize">
-            {act.sport_type.replace("_", " ")}
-          </h1>
-          <p className="text-gray-500 text-sm">
-            {startDate} at {startTime}
-          </p>
-        </div>
-        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded capitalize">
-          {act.source.replace("_", " ")}
-        </span>
-      </div>
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard
-          label="Distance"
-          value={fmtDist(act.distance_m)}
-        />
-        <StatCard
-          label="Time"
-          value={formatDuration(act.duration_s)}
-        />
-        <StatCard
-          label="Avg Pace"
-          value={fmtPace(act.avg_pace_s_per_km)}
-        />
-        <StatCard
-          label="Elevation"
-          value={fmtElev(act.elevation_gain_m)}
-          sub="gain"
-        />
-        {act.avg_hr && (
-          <StatCard label="Avg HR" value={`${act.avg_hr}`} sub="bpm" />
-        )}
-        {act.rpe && (
-          <StatCard
-            label="Effort"
-            value={["", "Very Easy", "Easy", "Moderate", "Hard", "Maximum"][act.rpe]}
-            sub={`RPE ${act.rpe}/5`}
-          />
-        )}
-      </div>
-
-      {/* Map */}
-      {dpLoading ? (
-        <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
-          Loading GPS data…
-        </div>
-      ) : (
-        <ActivityMap
-          datapoints={datapoints}
-          photos={photos}
-          highlightRange={brushRange}
-          hoverIndex={hoverIndex}
-        />
-      )}
-
-      {/* Range summary */}
-      {brushRange && datapoints.length > 0 && (
-        <RangeSummary datapoints={datapoints} range={brushRange} />
-      )}
-
-      {/* Charts */}
-      {!dpLoading && datapoints.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">
-            Analysis
-            <span className="text-xs font-normal text-gray-400 ml-2">
-              {datapoints.length.toLocaleString()} data points
+    <div className="p-4 max-w-5xl mx-auto space-y-4">
+      {/* Unified activity banner */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Top: title + meta */}
+        <div className="flex items-start justify-between px-5 pt-4 pb-3">
+          <div>
+            <Link to="/activities" className="text-xs text-blue-600 hover:underline mb-1.5 block">
+              ← Activities
+            </Link>
+            <h1 className="text-xl font-bold text-gray-900 capitalize leading-tight">
+              {act.name ?? act.sport_type.replace(/_/g, " ")}
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {startDate} · {startTime}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full capitalize">
+              {act.source.replace(/_/g, " ")}
             </span>
-          </h2>
-          <ActivityCharts
-            datapoints={datapoints}
-            onRangeChange={(start, end) => setBrushRange([start, end])}
-            onRangeClear={() => setBrushRange(null)}
-            onHoverIndex={setHoverIndex}
-          />
+            <Link
+              to={`/compare?a=${actId}`}
+              className="text-[11px] bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-0.5 rounded-full transition-colors"
+            >
+              Compare →
+            </Link>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-gray-100 mx-5" />
+
+        {/* Stats row */}
+        <div className="flex items-start gap-0 px-5 py-3 flex-wrap">
+          <StatCell label="Distance" value={fmtDist(act.distance_m)} />
+          <StatCell label="Time" value={formatDuration(act.duration_s)} />
+          <StatCell label="Avg Pace" value={fmtPace(act.avg_pace_s_per_km)} />
+          <div className="flex flex-col items-center px-4 first:pl-0 last:pr-0 border-l first:border-l-0 border-gray-200">
+            <div className="flex flex-col items-center leading-tight tabular-nums">
+              <span className="text-xl font-bold text-green-600">+{fmtElev(act.elevation_gain_m)}</span>
+              <span className="text-base font-semibold text-red-500">
+                −{act.elevation_loss_m != null ? fmtElev(act.elevation_loss_m) : "—"}
+              </span>
+            </div>
+            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mt-1">Elevation</span>
+          </div>
+          {act.avg_hr && <StatCell label="Avg HR" value={`${act.avg_hr}`} sub="bpm" />}
+          {act.rpe != null && act.rpe > 0 && (
+            <StatCell
+              label="Effort"
+              value={["", "Very Easy", "Easy", "Moderate", "Hard", "Maximum"][act.rpe]}
+              sub={`RPE ${act.rpe}/5`}
+              valueColor={RPE_COLORS[act.rpe]}
+            />
+          )}
+        </div>
+        <div className="px-5 pb-4">
+          <WeatherBanner activity={act} />
+        </div>
+      </div>
+
+      {/* Notes — shown directly below summary banner */}
+      {act.notes && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{act.notes}</p>
         </div>
       )}
+
+      {/* Main body: laps sidebar + map/charts */}
+      {/* On mobile: charts first (order-1), laps below (order-2). On md+: laps left, charts right. */}
+      <div className="flex flex-col md:flex-row gap-4 items-start">
+        {/* Laps — below on mobile, left column on desktop */}
+        {laps.length > 0 && (
+          <div className="order-2 md:order-1 w-full md:w-48 md:flex-shrink-0">
+            <LapTable
+              laps={laps}
+              activeLap={activeLap}
+              onLapClick={handleLapClick}
+            />
+          </div>
+        )}
+
+        {/* Map + range summary + charts — top on mobile, right on desktop */}
+        <div className="order-1 md:order-2 flex-1 min-w-0 space-y-4">
+          {/* Map */}
+          {!track ? (
+            <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
+              Loading GPS data…
+            </div>
+          ) : (
+            <ActivityMap
+              ref={mapRef}
+              datapoints={datapoints}
+              preloadedTrack={track}
+              photos={photos}
+              highlightRange={brushRange}
+            />
+          )}
+
+          {/* Range summary */}
+          {brushRange && datapoints.length > 0 && (
+            <RangeSummary datapoints={datapoints} range={brushRange} />
+          )}
+
+          {/* Charts */}
+          {!dpLoading && datapoints.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">
+                Analysis
+                <span className="text-xs font-normal text-gray-400 ml-2">
+                  {datapoints.length.toLocaleString()} data points
+                </span>
+              </h2>
+              <ActivityCharts
+                datapoints={datapoints}
+                externalRange={brushRange}
+                onRangeChange={(start, end) => { setActiveLap(null); setBrushRange([start, end]); }}
+                onRangeClear={() => { setActiveLap(null); setBrushRange(null); }}
+                onHoverIndex={handleHoverIndex}
+              />
+            </div>
+          )}
+
+          {/* Best efforts for this activity */}
+          {datapoints.length > 0 && (
+            <BestEfforts actId={actId} onSegmentSelect={handleBestEffortSelect} />
+          )}
+
+          {/* HR zone breakdown */}
+          {datapoints.some((d) => d.heart_rate != null) && (
+            <HrZones datapoints={datapoints} hrMax={hrMax} />
+          )}
+        </div>
+      </div>
 
       {/* Photos */}
       {photos.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Photos</h2>
           <PhotoGallery photos={photos} />
         </div>
       )}
 
-      {/* Notes */}
-      {act.notes && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h2 className="text-lg font-semibold text-gray-800 mb-2">Notes</h2>
-          <p className="text-gray-700 whitespace-pre-wrap">{act.notes}</p>
-        </div>
-      )}
     </div>
   );
 }
