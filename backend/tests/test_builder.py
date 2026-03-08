@@ -107,7 +107,7 @@ def test_eddington_simple():
     result = _compute_eddington(daily_miles)
     assert result["current_e"] == 5
     assert isinstance(result["next_e_gap"], int)
-    assert result["next_e_gap"] == 1  # need 1 more day >= 6 miles
+    assert result["next_e_gap"] == 4  # need 4 more days >= 6 miles (have 2: 6.0 and 6.2; need 6)
 
 
 def test_eddington_zero_when_no_data():

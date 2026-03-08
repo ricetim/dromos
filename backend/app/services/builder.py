@@ -169,7 +169,7 @@ def _compute_eddington(daily_miles: dict[str, float]) -> dict:
             current_e += 1
             history.append({"date": day_str, "e": current_e})
 
-    next_e_gap = (current_e + 1) - len(daily_miles)
+    next_e_gap = (current_e + 1) - counts[current_e + 1] if current_e + 1 <= max_miles else 1
     return {
         "current_e": current_e,
         "next_e_gap": max(0, next_e_gap),
