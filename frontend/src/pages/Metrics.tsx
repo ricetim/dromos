@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { getVdot, getPersonalBests } from "../api/client";
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { getVdot, getPersonalBests, getMetrics } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 
 function fmtTime(s: number): string {
@@ -49,6 +50,15 @@ export default function Fitness() {
     queryFn: getPersonalBests,
     staleTime: Infinity,  // static file — only changes after a write
   });
+
+  const { data: metricsData } = useQuery({
+    queryKey: ["metrics"],
+    queryFn: getMetrics,
+    staleTime: Infinity,
+  });
+
+  const eddington = metricsData?.eddington;
+  const yearly = metricsData?.yearly;
 
   const zones = vdotData?.pace_zones_s_per_km;
 
@@ -213,6 +223,69 @@ export default function Fitness() {
           </table>
         )}
       </div>
+
+      {/* Eddington Number */}
+      {eddington && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Eddington Number</h2>
+          <div className="flex items-start gap-8 flex-wrap">
+            <div>
+              <div className="text-6xl font-black text-blue-600 leading-none">{eddington.current_e}</div>
+              <div className="text-xs text-gray-400 mt-1">
+                {eddington.next_e_gap === 0
+                  ? `Achieved! Run ${eddington.current_e + 1} mi on ${eddington.current_e + 1} more days for E${eddington.current_e + 1}`
+                  : `${eddington.next_e_gap} more run${eddington.next_e_gap === 1 ? "" : "s"} of ≥${eddington.current_e + 1} mi for E${eddington.current_e + 1}`}
+              </div>
+            </div>
+            {eddington.history.length > 1 && (
+              <div className="flex-1 min-w-[280px] h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={eddington.history} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d.slice(0, 7)} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip formatter={(v: number) => [`E${v}`, "Eddington"]} labelFormatter={(l: string) => l} />
+                    <Area type="stepAfter" dataKey="e" stroke="#3b82f6" fill="#dbeafe" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Yearly Mileage Overlay */}
+      {yearly?.years && Object.keys(yearly.years).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Annual Mileage by Week</h2>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="week" type="number" domain={[1, 53]} tickCount={14} tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} unit=" km" />
+                <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)} km`, name]} />
+                <Legend />
+                {Object.entries(yearly.years).map(([year, weeks], i) => {
+                  const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+                  return (
+                    <Line
+                      key={year}
+                      data={weeks as { week: number; km: number }[]}
+                      dataKey="km"
+                      name={year}
+                      stroke={COLORS[i % COLORS.length]}
+                      strokeWidth={2}
+                      dot={false}
+                      type="monotone"
+                    />
+                  );
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

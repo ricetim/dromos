@@ -43,6 +43,8 @@ export const getGoals = () => _fetchJson("/static/goals.json");
 
 export const getShoes = () => _fetchJson("/static/shoes.json");
 
+export const getMetrics = () => _fetchJson("/static/metrics.json");
+
 export const getPlans = () => _fetchJson("/static/plans.json");
 
 export const getPlan = (id: number) =>

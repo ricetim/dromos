@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Link } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UnitsProvider, useUnits } from "./contexts/UnitsContext";
-import { getActivities, getStatsSummary, getPersonalBests, getVdot } from "./api/client";
+import { getActivities, getStatsSummary, getPersonalBests, getVdot, getMetrics } from "./api/client";
 import ActivityList from "./pages/ActivityList";
 import Dashboard from "./pages/Dashboard";
 import Gear from "./pages/Gear";
@@ -34,6 +34,7 @@ queryClient.prefetchQuery({ queryKey: ["stats-summary", "week"],  queryFn: () =>
 queryClient.prefetchQuery({ queryKey: ["stats-summary", "month"], queryFn: () => getStatsSummary("month"),   staleTime: Infinity });
 queryClient.prefetchQuery({ queryKey: ["personal-bests"],         queryFn: getPersonalBests,                 staleTime: Infinity });
 queryClient.prefetchQuery({ queryKey: ["vdot"],                   queryFn: getVdot,                          staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["metrics"],               queryFn: getMetrics,                       staleTime: Infinity });
 
 const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Dashboard", end: true },
