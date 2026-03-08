@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getShoes, createShoe, updateShoe, triggerSync, getSyncStatus } from "../api/client";
+import { getShoes, createShoe, updateShoe, triggerSync, getSyncStatus, getActivities } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
+import { Activity } from "../types";
 
 interface Shoe {
   id: number;
@@ -11,6 +13,7 @@ interface Shoe {
   notes: string | null;
   retirement_threshold_km: number;
   total_distance_km: number;
+  activity_ids?: number[];
 }
 
 function MileageBar({ used, limit }: { used: number; limit: number }) {
@@ -67,14 +70,22 @@ function StravaSync({ onSynced }: { onSynced: () => void }) {
 
 export default function Gear() {
   const qc = useQueryClient();
-  const { system, fmtShoe } = useUnits();
+  const { system, fmtShoe, fmtDist, fmtPace } = useUnits();
   const defaultThreshold = system === "imperial" ? "500" : "800";
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", brand: "", retirement_threshold: defaultThreshold });
+  const [expandedShoe, setExpandedShoe] = useState<number | null>(null);
 
   const { data: shoes = [] } = useQuery<Shoe[]>({
     queryKey: ["shoes"],
     queryFn: getShoes,
+  });
+
+  const { data: allActivities = [] } = useQuery<Activity[]>({
+    queryKey: ["activities"],
+    queryFn: getActivities,
+    enabled: expandedShoe !== null,
+    staleTime: 60_000,
   });
 
   const createMutation = useMutation({
@@ -171,29 +182,71 @@ export default function Gear() {
       )}
 
       {active.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-50">
-          {active.map((shoe) => (
-            <div key={shoe.id} className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-medium text-gray-800">{shoe.name}</div>
-                  {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-mono text-gray-700">
-                    {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-100">
+          {active.map((shoe) => {
+            const isOpen = expandedShoe === shoe.id;
+            const shoeActs = isOpen && shoe.activity_ids
+              ? allActivities.filter((a) => shoe.activity_ids!.includes(a.id))
+                  .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+              : [];
+            return (
+              <div key={shoe.id}>
+                <button
+                  className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
+                  onClick={() => setExpandedShoe(isOpen ? null : shoe.id)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-medium text-gray-800 flex items-center gap-1.5">
+                        {shoe.name}
+                        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
+                    </div>
+                    <div className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="text-sm font-mono text-gray-700">
+                        {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
+                      </div>
+                      <button
+                        onClick={() => retireMutation.mutate(shoe.id)}
+                        className="text-xs text-gray-400 hover:text-red-500 mt-1"
+                      >
+                        Retire
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => retireMutation.mutate(shoe.id)}
-                    className="text-xs text-gray-400 hover:text-red-500 mt-1"
-                  >
-                    Retire
-                  </button>
-                </div>
+                  <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
+                </button>
+                {isOpen && (
+                  <div className="border-t border-gray-100 divide-y divide-gray-50">
+                    {shoeActs.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-gray-400">No runs recorded yet.</div>
+                    ) : shoeActs.map((a) => {
+                      const date = new Date(a.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                      return (
+                        <Link
+                          key={a.id}
+                          to={`/activity/${a.id}`}
+                          className="flex items-center justify-between px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                        >
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">{a.name ?? a.sport_type.replace(/_/g, " ")}</div>
+                            <div className="text-xs text-gray-400">{date}</div>
+                          </div>
+                          <div className="text-right text-sm font-mono text-gray-600">
+                            <div>{fmtDist(a.distance_m)}</div>
+                            <div className="text-xs text-gray-400">{fmtPace(a.avg_pace_s_per_km)}</div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from app.database import engine
 from app.models import Activity, ActivityShoe, DataPoint, Lap, Shoe
 from app.services.strava import (
-    get_access_token, fetch_athlete, fetch_athlete_activities, sync_photos_for_activity,
+    get_access_token, fetch_athlete, fetch_athlete_activities, fetch_gear, sync_photos_for_activity,
 )
 from app.services.coros import login as coros_login, list_activities as coros_list
 from app.services.coros import download_fit, get_activity_detail
@@ -97,9 +97,18 @@ def _sync_strava_activities() -> None:
 
             session.commit()
 
-            # ── 3. Upsert shoes from athlete profile ──────────────────────
+            # ── 3. Upsert shoes from athlete profile (or by gear_id fallback) ──
             athlete = fetch_athlete(token)
             shoes_data: list[dict] = athlete.get("shoes", [])
+            # If profile returns no shoes, fetch gear directly from activity gear_ids
+            if not shoes_data:
+                seen_gear: set[str] = set()
+                for gear_id in gear_map:
+                    if gear_id not in seen_gear:
+                        gear = fetch_gear(token, gear_id)
+                        if gear:
+                            shoes_data.append(gear)
+                        seen_gear.add(gear_id)
             shoes_synced = 0
             for sd in shoes_data:
                 gear_id = sd.get("id", "")

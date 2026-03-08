@@ -54,6 +54,19 @@ def fetch_athlete_activities(access_token: str, after: int = 0) -> list[dict]:
     return results
 
 
+def fetch_gear(access_token: str, gear_id: str) -> dict | None:
+    """Fetch a single gear item by Strava gear_id (e.g. 'g27724348')."""
+    try:
+        r = httpx.get(
+            f"{_API}/gear/{gear_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        _check(r)
+        return r.json()
+    except Exception:
+        return None
+
+
 def fetch_activity_photos(access_token: str, strava_activity_id: str) -> list[dict]:
     r = httpx.get(
         f"{_API}/activities/{strava_activity_id}/photos",

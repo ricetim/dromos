@@ -22,6 +22,8 @@ export interface Activity {
   weather_is_daytime?: boolean | null;
   track?: [number, number][];
   planned_workout_type?: string | null;
+  shoe_names?: string[];
+  shoes?: { id: number; name: string; brand: string | null }[];
 }
 
 export interface DataPoint {

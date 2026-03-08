@@ -317,6 +317,7 @@ export default function ActivityDetail() {
   const act = full?.activity;
   const laps = full?.laps ?? [];
   const track = full?.track;
+  const shoes = (full as any)?.shoes as { id: number; name: string; brand: string | null }[] | undefined;
 
   const { data: datapoints = [], isLoading: dpLoading } = useQuery<DataPoint[]>({
     queryKey: ["datapoints", actId],
@@ -458,6 +459,14 @@ export default function ActivityDetail() {
         </div>
         <div className="px-5 pb-4">
           <WeatherBanner activity={act} />
+          {shoes && shoes.length > 0 && (
+            <div className="flex items-center gap-2 pt-2 mt-1 text-sm text-gray-600 flex-wrap">
+              <span className="text-base leading-none">👟</span>
+              {shoes.map((s) => (
+                <span key={s.id} className="text-gray-700">{s.name}</span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

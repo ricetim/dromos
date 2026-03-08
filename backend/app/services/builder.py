@@ -77,7 +77,7 @@ def rebuild_activity(
     tile_dir: Path = TILE_DIR,
 ) -> None:
     """Write activity-{id}.json, datapoints-{id}.json, and pre-fetch map tiles."""
-    from app.models import Activity, DataPoint, Lap
+    from app.models import Activity, ActivityShoe, DataPoint, Lap, Shoe
 
     act = session.get(Activity, activity_id)
     if not act:
@@ -93,6 +93,12 @@ def rebuild_activity(
         .order_by(DataPoint.timestamp)
     ).all()
 
+    shoes = session.exec(
+        select(Shoe)
+        .join(ActivityShoe, ActivityShoe.shoe_id == Shoe.id)
+        .where(ActivityShoe.activity_id == activity_id)
+    ).all()
+
     gps_rows = [(dp.lat, dp.lon, dp.speed_m_s) for dp in dps if dp.lat and dp.lon]
     track = [[lat, lon, spd] for lat, lon, spd in gps_rows]
 
@@ -100,6 +106,7 @@ def rebuild_activity(
         "activity": act.model_dump(),
         "laps": [lap.model_dump() for lap in laps],
         "track": track,
+        "shoes": [{"id": s.id, "name": s.name, "brand": s.brand} for s in shoes],
     })
     _write_json(static_dir / f"datapoints-{activity_id}.json", [dp.model_dump() for dp in dps])
 
@@ -242,7 +249,7 @@ def rebuild_globals(session: Session, static_dir: Path = STATIC_DIR) -> None:
 
 
 def _rebuild_activities(session: Session, static_dir: Path) -> None:
-    from app.models import Activity, DataPoint, PlannedWorkout
+    from app.models import Activity, ActivityShoe, DataPoint, PlannedWorkout, Shoe
 
     activities = session.exec(select(Activity).order_by(Activity.started_at.desc())).all()
     if not activities:
@@ -268,11 +275,21 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
     ).all()
     plan_type = {row[0]: row[1] for row in planned}
 
+    shoe_rows = session.exec(
+        select(ActivityShoe.activity_id, Shoe.name)
+        .join(Shoe, Shoe.id == ActivityShoe.shoe_id)
+        .where(ActivityShoe.activity_id.in_(ids))
+    ).all()
+    shoes_by_id: dict[int, list] = defaultdict(list)
+    for row in shoe_rows:
+        shoes_by_id[row[0]].append(row[1])
+
     result = []
     for a in activities:
         d = a.model_dump()
         d["track"] = _downsample(gps_by_id.get(a.id, []))
         d["planned_workout_type"] = plan_type.get(a.id)
+        d["shoe_names"] = shoes_by_id.get(a.id, [])
         result.append(d)
 
     _write_json(static_dir / "activities.json", result)
@@ -308,6 +325,13 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
     from app.models import Activity, ActivityShoe, Shoe
 
     shoes = session.exec(select(Shoe)).all()
+
+    # Batch fetch all activity links for all shoes (one query)
+    all_links = session.exec(select(ActivityShoe.shoe_id, ActivityShoe.activity_id)).all()
+    acts_by_shoe: dict[int, list[int]] = defaultdict(list)
+    for link in all_links:
+        acts_by_shoe[link[0]].append(link[1])
+
     result = []
     for shoe in shoes:
         dist = session.exec(
@@ -315,7 +339,12 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
             .join(ActivityShoe, ActivityShoe.activity_id == Activity.id)
             .where(ActivityShoe.shoe_id == shoe.id)
         ).first() or 0.0
-        result.append({**shoe.model_dump(), "total_distance_km": round(dist / 1000, 1)})
+        act_ids = sorted(acts_by_shoe.get(shoe.id, []), reverse=True)
+        result.append({
+            **shoe.model_dump(),
+            "total_distance_km": round(dist / 1000, 1),
+            "activity_ids": act_ids,
+        })
     _write_json(static_dir / "shoes.json", result)
 
 
