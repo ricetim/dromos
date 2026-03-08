@@ -39,7 +39,7 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
                 "end_date": day,
                 "hourly": "temperature_2m,apparent_temperature,precipitation,cloudcover,windspeed_10m,weathercode",
                 "daily": "sunrise,sunset",
-                "timezone": "auto",
+                "timezone": "UTC",
             },
             timeout=10,
         )
@@ -50,12 +50,11 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
         hourly = data["hourly"]
         times = hourly["time"]  # list of "YYYY-MM-DDTHH:MM" strings
 
-        # Find the index whose hour matches the run's start hour
-        run_hour = started_at.hour
-        idx = next(
-            (i for i, t in enumerate(times) if int(t[11:13]) == run_hour),
-            0,
-        )
+        # Find the index whose hour matches the run's start hour (UTC)
+        run_hour = started_at.astimezone(timezone.utc).hour
+        idx = next((i for i, t in enumerate(times) if int(t[11:13]) == run_hour), None)
+        if idx is None:
+            return None
 
         daily = data.get("daily", {})
         sunrise_str = (daily.get("sunrise") or [""])[0]
@@ -63,10 +62,11 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
 
         is_daytime = False
         if sunrise_str and sunset_str:
-            def _parse_local(s: str) -> int:
+            def _parse_utc(s: str) -> int:
                 return int(s[11:13]) * 60 + int(s[14:16])
-            run_minutes = run_hour * 60 + started_at.minute
-            is_daytime = _parse_local(sunrise_str) <= run_minutes <= _parse_local(sunset_str)
+            utc_dt = started_at.astimezone(timezone.utc)
+            run_minutes = utc_dt.hour * 60 + utc_dt.minute
+            is_daytime = _parse_utc(sunrise_str) <= run_minutes <= _parse_utc(sunset_str)
 
         wmo_code = int(hourly["weathercode"][idx] or 0)
         return {

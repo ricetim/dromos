@@ -63,3 +63,32 @@ def test_fetch_weather_before_sunrise():
     with patch("httpx.get", return_value=mock_resp):
         result = fetch_weather(51.5, -0.1, started_at)
     assert result["weather_is_daytime"] is False
+
+
+def test_fetch_weather_utc_hour_index():
+    """Run at UTC hour 6 must pick slot index 6, not any other."""
+    mock_data = _mock_response()
+    # Make each slot's temperature unique so we can verify the correct index was used
+    mock_data["hourly"]["temperature_2m"] = list(range(24))  # slot i → temp i °C
+    started_at = datetime(2024, 5, 1, 6, 0, tzinfo=timezone.utc)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+    with patch("httpx.get", return_value=mock_resp):
+        result = fetch_weather(51.5, -0.1, started_at)
+    assert result is not None
+    assert result["weather_temp_c"] == 6  # slot 6 → 6 °C
+
+
+def test_fetch_weather_no_matching_hour_returns_none():
+    """If no hourly slot matches the UTC run hour, return None instead of wrong data."""
+    mock_data = _mock_response()
+    # Replace all time strings so none match hour 8
+    mock_data["hourly"]["time"] = [f"2024-05-01T{h:02d}:00" for h in range(5)]  # only 0-4
+    started_at = datetime(2024, 5, 1, 8, 0, tzinfo=timezone.utc)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+    with patch("httpx.get", return_value=mock_resp):
+        result = fetch_weather(51.5, -0.1, started_at)
+    assert result is None
