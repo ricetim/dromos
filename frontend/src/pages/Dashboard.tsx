@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
 import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints, getProfile } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
@@ -285,9 +285,11 @@ function FeaturedActivity({ act }: { act: Activity }) {
   );
 }
 
-// ── rolling 7-day volume + TRIMP chart ───────────────────────────────────────
+// ── last 7 days volume + TRIMP ────────────────────────────────────────────────
 
-function RollingVolume({ acts }: { acts: Activity[] }) {
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function Last7Days({ acts }: { acts: Activity[] }) {
   const { system } = useUnits();
   const distUnit = system === "imperial" ? "mi" : "km";
 
@@ -299,64 +301,61 @@ function RollingVolume({ acts }: { acts: Activity[] }) {
   const hrMax = profile?.hr_max ?? 185;
   const hrRest = profile?.hr_rest ?? 50;
 
-  const data = useMemo(() => {
-    // Aggregate distance (m) and TRIMP per calendar day
-    const dayMap: Record<string, { dist_m: number; trimp: number }> = {};
+  const { data, totalDist, totalTrimp } = useMemo(() => {
+    const now = new Date();
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (6 - i));
+      return { key: d.toISOString().slice(0, 10), label: DAY_LABELS[d.getDay()], dist: 0, trimp: 0 };
+    });
+
     for (const act of acts) {
-      const day = act.started_at.slice(0, 10);
-      if (!dayMap[day]) dayMap[day] = { dist_m: 0, trimp: 0 };
-      dayMap[day].dist_m += act.distance_m;
+      const day = days.find((d) => d.key === act.started_at.slice(0, 10));
+      if (!day) continue;
+      day.dist += act.distance_m;
       if (act.avg_hr && act.duration_s) {
         const hrRatio = Math.max(0, (act.avg_hr - hrRest) / (hrMax - hrRest));
         if (hrRatio > 0)
-          dayMap[day].trimp += (act.duration_s / 60) * hrRatio * 0.64 * Math.exp(1.92 * hrRatio);
+          day.trimp += (act.duration_s / 60) * hrRatio * 0.64 * Math.exp(1.92 * hrRatio);
       }
     }
 
-    // Rolling 7-day sums for each of the last 90 days
-    const result = [];
-    const now = new Date();
-    for (let i = 89; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const label = `${d.getMonth() + 1}/${d.getDate()}`;
-      let dist7 = 0, trimp7 = 0;
-      for (let j = 6; j >= 0; j--) {
-        const prev = new Date(d);
-        prev.setDate(d.getDate() - j);
-        const key = prev.toISOString().slice(0, 10);
-        if (dayMap[key]) { dist7 += dayMap[key].dist_m; trimp7 += dayMap[key].trimp; }
-      }
-      const distDisplay = system === "imperial" ? dist7 / 1609.34 : dist7 / 1000;
-      result.push({ date: label, dist7: +distDisplay.toFixed(1), trimp7: +trimp7.toFixed(0) });
-    }
-    return result;
+    const toDisplay = (m: number) => system === "imperial" ? +(m / 1609.34).toFixed(1) : +(m / 1000).toFixed(1);
+    const rows = days.map((d) => ({ label: d.label, dist: toDisplay(d.dist), trimp: +d.trimp.toFixed(0) }));
+    const totalDist = toDisplay(days.reduce((s, d) => s + d.dist, 0));
+    const totalTrimp = +days.reduce((s, d) => s + d.trimp, 0).toFixed(0);
+    return { data: rows, totalDist, totalTrimp };
   }, [acts, system, hrMax, hrRest]);
 
-  if (!data.some((d) => d.dist7 > 0)) return null;
+  if (!data.some((d) => d.dist > 0)) return null;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">
-        Rolling 7-Day Load{" "}
-        <span className="font-normal text-gray-400 text-xs">(last 90 days)</span>
-      </h2>
-      <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={data} margin={{ top: 4, right: 44, left: 0, bottom: 0 }}>
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-700">Last 7 Days</h2>
+        <div className="text-sm text-gray-500">
+          <span className="font-bold text-gray-800">{totalDist} {distUnit}</span>
+          <span className="mx-2 text-gray-300">·</span>
+          <span className="font-bold text-orange-500">{totalTrimp} AU</span>
+          <span className="text-xs text-gray-400 ml-1">TRIMP</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={110}>
+        <ComposedChart data={data} margin={{ top: 4, right: 44, left: 0, bottom: 0 }} barCategoryGap="25%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={13} />
-          <YAxis yAxisId="dist" tick={{ fontSize: 10 }} width={38} unit={` ${distUnit}`} />
-          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={38} unit=" AU" />
+          <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+          <YAxis yAxisId="dist" tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
+          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={36} unit=" AU" />
           <Tooltip
             contentStyle={{ fontSize: 12 }}
             formatter={(v: number, name: string) =>
-              name === "dist7"
-                ? [`${v.toFixed(1)} ${distUnit}`, "7-day dist"]
-                : [`${Math.round(v)} AU`, "7-day TRIMP"]
+              name === "dist"
+                ? [`${v} ${distUnit}`, "Distance"]
+                : [`${v} AU`, "TRIMP"]
             }
           />
-          <Area yAxisId="dist" type="monotone" dataKey="dist7" fill="#dbeafe" stroke="#3b82f6" strokeWidth={2} dot={false} />
-          <Line yAxisId="trimp" type="monotone" dataKey="trimp7" stroke="#f97316" strokeWidth={2} dot={false} />
+          <Bar yAxisId="dist" dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+          <Line yAxisId="trimp" type="monotone" dataKey="trimp" stroke="#f97316" strokeWidth={2} dot={{ r: 3, fill: "#f97316" }} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -423,8 +422,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Rolling 7-day volume + TRIMP */}
-      <RollingVolume acts={allActs} />
+      {/* Last 7 days volume + TRIMP */}
+      <Last7Days acts={allActs} />
 
       {/* Most recent activity — large card */}
       {latestAct && (
