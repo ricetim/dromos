@@ -67,11 +67,68 @@ def fetch_gear(access_token: str, gear_id: str) -> dict | None:
         return None
 
 
+_STREAM_KEYS = "time,latlng,altitude,heartrate,cadence,velocity_smooth,distance"
+
+
+def fetch_activity_streams(access_token: str, strava_activity_id: str) -> dict:
+    """
+    Fetch activity streams keyed by type.
+    Returns dict like: {"time": {"data": [...]}, "latlng": {"data": [...]}, ...}
+    """
+    r = httpx.get(
+        f"{_API}/activities/{strava_activity_id}/streams",
+        params={"keys": _STREAM_KEYS, "key_by_type": "true"},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30,
+    )
+    _check(r)
+    return r.json()
+
+
+def fetch_activity_laps(access_token: str, strava_activity_id: str) -> list[dict]:
+    """Fetch laps for a Strava activity. Returns raw lap dicts."""
+    r = httpx.get(
+        f"{_API}/activities/{strava_activity_id}/laps",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    _check(r)
+    data = r.json()
+    return data if isinstance(data, list) else []
+
+
+def streams_to_datapoints(streams: dict, started_at) -> list[dict]:
+    """Convert keyed stream dict → list of datapoint dicts (timestamp-stamped)."""
+    from datetime import timedelta
+    times    = streams.get("time",             {}).get("data", [])
+    latlngs  = streams.get("latlng",           {}).get("data", [])
+    alts     = streams.get("altitude",         {}).get("data", [])
+    hrs      = streams.get("heartrate",        {}).get("data", [])
+    cads     = streams.get("cadence",          {}).get("data", [])
+    speeds   = streams.get("velocity_smooth",  {}).get("data", [])
+    dists    = streams.get("distance",         {}).get("data", [])
+
+    dps = []
+    for i, t_s in enumerate(times):
+        dps.append({
+            "timestamp":  started_at + timedelta(seconds=int(t_s)),
+            "lat":        latlngs[i][0] if i < len(latlngs) else None,
+            "lon":        latlngs[i][1] if i < len(latlngs) else None,
+            "altitude_m": alts[i]       if i < len(alts)    else None,
+            "heart_rate": round(hrs[i]) if i < len(hrs)     else None,
+            "cadence":    round(cads[i])if i < len(cads)    else None,
+            "speed_m_s":  speeds[i]     if i < len(speeds)  else None,
+            "distance_m": dists[i]      if i < len(dists)   else None,
+        })
+    return dps
+
+
 def fetch_activity_photos(access_token: str, strava_activity_id: str) -> list[dict]:
     r = httpx.get(
         f"{_API}/activities/{strava_activity_id}/photos",
         params={"photo_sources": "true", "size": 1200},
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
     )
     _check(r)
     data = r.json()
