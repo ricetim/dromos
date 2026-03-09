@@ -281,10 +281,12 @@ export default function Fitness() {
             // Multiple runs on same day accumulate
             dayMap[day] = Math.round(toDisplayDist(cumulative) * 10) / 10;
           }
-          // Fill forward from first run day so line stays flat between workouts
+          // Fill forward from first run day so line stays flat between workouts,
+          // but stop at the last actual run day (no trailing line into the future)
           const firstDay = sorted[0]?.day ?? 1;
+          const lastDay = sorted[sorted.length - 1]?.day ?? firstDay;
           let lastVal = 0;
-          for (let d = firstDay; d <= 366; d++) {
+          for (let d = firstDay; d <= lastDay; d++) {
             if (dayMap[d] !== undefined) lastVal = dayMap[d];
             else dayMap[d] = lastVal;
           }
