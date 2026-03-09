@@ -4,6 +4,7 @@ from app.database import engine
 from app.models import Activity, ActivityShoe, DataPoint, Lap, Shoe
 from app.services.strava import (
     get_access_token, fetch_athlete, fetch_athlete_activities, fetch_gear, sync_photos_for_activity,
+    fetch_activity_streams, streams_to_datapoints, fetch_activity_laps,
 )
 from app.services.coros import login as coros_login, list_activities as coros_list
 from app.services.coros import download_fit, get_activity_detail
@@ -12,10 +13,12 @@ from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR, STRAVA_REFRESH_TOK
 from app.services.builder import bg_rebuild_all
 from app.services.weather import fetch_weather
 from datetime import datetime, timezone
+import threading
 import uuid
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 _last_sync: dict = {"status": "never", "ts": None, "error": None}
+_sync_lock = threading.Lock()
 
 
 @router.get("/status")
@@ -25,9 +28,18 @@ def status():
 
 @router.post("/trigger")
 def trigger(bg: BackgroundTasks):
+    if _sync_lock.locked():
+        return {"message": "sync already in progress"}
     bg.add_task(_sync_strava_activities)
     bg.add_task(_sync_coros)
     return {"message": "sync triggered"}
+
+
+@router.post("/rebuild")
+def rebuild_static(bg: BackgroundTasks):
+    """Regenerate all static JSON snapshots from the current database state."""
+    bg.add_task(bg_rebuild_all)
+    return {"message": "rebuild triggered"}
 
 
 def _sync_strava_activities() -> None:
@@ -42,7 +54,7 @@ def _sync_strava_activities() -> None:
     global _last_sync
     if not STRAVA_REFRESH_TOKEN:
         return
-    with Session(engine) as session:
+    with _sync_lock, Session(engine) as session:
         try:
             token = get_access_token()
 
@@ -94,6 +106,103 @@ def _sync_strava_activities() -> None:
                 gear_id = matched.get("gear_id") or ""
                 if gear_id and act.id:
                     gear_map.setdefault(gear_id, []).append(act.id)
+
+            session.commit()
+
+            # ── 2b. Import unmatched Strava run activities via streams ────────────
+            # Run sport types as reported by Strava (sport_type field, newer API).
+            _RUN_TYPES = {"Run", "VirtualRun", "TrailRun"}
+            existing_strava_ids = {a.strava_id for a in local_acts if a.strava_id}
+            unmatched = [
+                sa for sa in strava_acts
+                if str(sa["id"]) not in existing_strava_ids
+                and (
+                    sa.get("sport_type") in _RUN_TYPES
+                    or sa.get("type") == "Run"
+                )
+            ]
+
+            streams_imported = 0
+            for sa in unmatched:
+                strava_id = str(sa["id"])
+                started_at = datetime.fromisoformat(
+                    sa["start_date"].replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+
+                sport_raw = sa.get("sport_type") or sa.get("type") or "run"
+                sport_type = sport_raw.lower().replace(" ", "_")
+                distance_m = float(sa.get("distance") or 0)
+                duration_s = int(sa.get("moving_time") or 0)
+                elevation_m = float(sa.get("total_elevation_gain") or 0)
+                avg_hr = sa.get("average_heartrate")
+                avg_speed = sa.get("average_speed")
+                avg_pace = (1000 / avg_speed) if avg_speed and avg_speed > 0 else None
+
+                try:
+                    streams = fetch_activity_streams(token, strava_id)
+                except Exception:
+                    continue
+
+                dps = streams_to_datapoints(streams, started_at)
+
+                act = Activity(
+                    source="strava",
+                    strava_id=strava_id,
+                    started_at=started_at,
+                    distance_m=distance_m,
+                    duration_s=duration_s,
+                    elevation_gain_m=elevation_m,
+                    avg_hr=int(avg_hr) if avg_hr else None,
+                    avg_pace_s_per_km=round(avg_pace, 1) if avg_pace else None,
+                    sport_type=sport_type,
+                    name=sa.get("name") or None,
+                )
+                session.add(act)
+                session.flush()
+
+                for dp in dps:
+                    session.add(DataPoint(activity_id=act.id, **dp))
+
+                # Fetch and store laps
+                try:
+                    raw_laps = fetch_activity_laps(token, strava_id)
+                    elapsed = 0.0
+                    for raw in raw_laps:
+                        lap_dur = float(raw.get("elapsed_time") or 0)
+                        lap_dist = float(raw.get("distance") or 0)
+                        lap_hr = raw.get("average_heartrate")
+                        lap_speed = raw.get("average_speed")
+                        lap_pace = (1000 / lap_speed) if lap_speed and lap_speed > 0 else None
+                        session.add(Lap(
+                            activity_id=act.id,
+                            lap_number=int(raw.get("lap_index") or 0),
+                            start_elapsed_s=elapsed,
+                            end_elapsed_s=elapsed + lap_dur,
+                            distance_m=lap_dist,
+                            duration_s=lap_dur,
+                            avg_hr=int(lap_hr) if lap_hr else None,
+                            avg_pace_s_per_km=round(lap_pace, 1) if lap_pace else None,
+                            elevation_gain_m=float(raw.get("total_elevation_gain") or 0) or None,
+                        ))
+                        elapsed += lap_dur
+                except Exception:
+                    pass  # laps are best-effort
+
+                # Add to gear_map if this activity has a gear_id
+                gear_id = sa.get("gear_id") or ""
+                if gear_id and act.id:
+                    gear_map.setdefault(gear_id, []).append(act.id)
+
+                # Fetch weather
+                first_gps = next((dp for dp in dps if dp.get("lat") and dp.get("lon")), None)
+                if first_gps:
+                    weather = fetch_weather(first_gps["lat"], first_gps["lon"], started_at)
+                    if weather:
+                        for k, v in weather.items():
+                            setattr(act, k, v)
+                        session.add(act)
+
+                streams_imported += 1
 
             session.commit()
 
@@ -163,6 +272,7 @@ def _sync_strava_activities() -> None:
                 "status": "ok",
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "matched_activities": matched_count,
+                "strava_activities_imported": streams_imported,
                 "shoes_synced": shoes_synced,
                 "shoe_links_created": links_created,
                 "new_photos": new_photos,
