@@ -59,19 +59,8 @@ def _sync_strava_activities() -> None:
             token = get_access_token()
 
             # ── 1. Fetch Strava activity list ─────────────────────────────
-            # Use earliest local activity as the lower bound to minimise API pages.
-            earliest_row = session.exec(
-                select(Activity.started_at).order_by(Activity.started_at)
-            ).first()
-            if earliest_row:
-                earliest_dt = earliest_row
-                if earliest_dt.tzinfo is None:
-                    earliest_dt = earliest_dt.replace(tzinfo=timezone.utc)
-                after_ts = int(earliest_dt.timestamp()) - 86400  # 1 day buffer
-            else:
-                after_ts = 0
-
-            strava_acts = fetch_athlete_activities(token, after=after_ts)
+            # Fetch all time (after=0) so pre-Coros Strava history is included.
+            strava_acts = fetch_athlete_activities(token, after=0)
 
             # Build lookup: unix_timestamp → strava activity dict
             def _ts(iso: str) -> int:
