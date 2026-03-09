@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useTheme } from "../contexts/ThemeContext";
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -151,8 +152,13 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
   { datapoints, preloadedTrack, photos = [], highlightRange }: Props,
   ref,
 ) {
-  const [tileKey, setTileKey] = useState<TileKey>("light");
+  const { theme } = useTheme();
+  const [tileKey, setTileKey] = useState<TileKey>(theme === "solarized-dark" ? "dark" : "light");
   const hoverDotRef = useRef<L.CircleMarker | null>(null);
+
+  useEffect(() => {
+    setTileKey(theme === "solarized-dark" ? "dark" : "light");
+  }, [theme]);
 
   useImperativeHandle(ref, () => ({
     updateHover(lat: number | null, lon: number | null) {

@@ -9,3 +9,138 @@ body {
   color: #111827;
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+/* ─── Solarized Dark ──────────────────────────────────────────────────────── */
+/* Palette: base03=#002b36 base02=#073642 base01=#586e75 base00=#657b83       */
+/*          base0=#839496  base1=#93a1a1  base2=#eee8d5  base3=#fdf6e3        */
+/*          blue=#268bd2   green=#859900  yellow=#b58900  red=#dc322f          */
+
+html[data-theme="solarized-dark"] body,
+html[data-theme="solarized-dark"] { background-color: #002b36; color: #839496; }
+
+/* Backgrounds */
+html[data-theme="solarized-dark"] .bg-white         { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .bg-gray-50        { background-color: #002b36 !important; }
+html[data-theme="solarized-dark"] .bg-gray-100       { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .min-h-screen      { background-color: #002b36; }
+html[data-theme="solarized-dark"] .hover\:bg-gray-50:hover  { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .hover\:bg-blue-50:hover  { background-color: #073642 !important; }
+
+/* Text */
+html[data-theme="solarized-dark"] .text-gray-900 { color: #fdf6e3 !important; }
+html[data-theme="solarized-dark"] .text-gray-800 { color: #eee8d5 !important; }
+html[data-theme="solarized-dark"] .text-gray-700 { color: #93a1a1 !important; }
+html[data-theme="solarized-dark"] .text-gray-600 { color: #839496 !important; }
+html[data-theme="solarized-dark"] .text-gray-500 { color: #657b83 !important; }
+html[data-theme="solarized-dark"] .text-gray-400 { color: #586e75 !important; }
+html[data-theme="solarized-dark"] .text-blue-600 { color: #268bd2 !important; }
+html[data-theme="solarized-dark"] .text-blue-500 { color: #268bd2 !important; }
+html[data-theme="solarized-dark"] .text-blue-700 { color: #2aa198 !important; }
+
+/* Borders */
+html[data-theme="solarized-dark"] .border-gray-50  { border-color: #002b36 !important; }
+html[data-theme="solarized-dark"] .border-gray-100 { border-color: #073642 !important; }
+html[data-theme="solarized-dark"] .border-gray-200 { border-color: #586e75 !important; }
+html[data-theme="solarized-dark"] .border-gray-300 { border-color: #586e75 !important; }
+html[data-theme="solarized-dark"] .divide-gray-50  > * + * { border-color: #002b36 !important; }
+html[data-theme="solarized-dark"] .divide-gray-100 > * + * { border-color: #073642 !important; }
+
+/* Nav bar */
+html[data-theme="solarized-dark"] .bg-blue-800 { background-color: #002b36 !important; }
+html[data-theme="solarized-dark"] .bg-blue-700 { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .hover\:bg-blue-700:hover { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .border-blue-700 { border-color: #073642 !important; }
+html[data-theme="solarized-dark"] .border-blue-600 { border-color: #073642 !important; }
+
+/* Shadow */
+html[data-theme="solarized-dark"] .shadow-sm   { box-shadow: 0 1px 3px rgba(0,0,0,0.4) !important; }
+html[data-theme="solarized-dark"] .shadow-md   { box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important; }
+
+/* Inputs */
+html[data-theme="solarized-dark"] input,
+html[data-theme="solarized-dark"] select,
+html[data-theme="solarized-dark"] textarea {
+  background-color: #073642 !important;
+  color: #839496 !important;
+  border-color: #586e75 !important;
+}
+html[data-theme="solarized-dark"] input::placeholder { color: #586e75 !important; }
+
+/* Recharts */
+html[data-theme="solarized-dark"] .recharts-cartesian-grid-horizontal line,
+html[data-theme="solarized-dark"] .recharts-cartesian-grid-vertical line { stroke: #073642 !important; }
+html[data-theme="solarized-dark"] .recharts-text { fill: #586e75 !important; }
+html[data-theme="solarized-dark"] .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: #073642 !important;
+  border-color: #586e75 !important;
+  color: #93a1a1 !important;
+}
+
+/* Notes / highlight boxes */
+html[data-theme="solarized-dark"] .bg-amber-50  { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .bg-orange-50 { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .bg-blue-50   { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .border-amber-200  { border-color: #586e75 !important; }
+html[data-theme="solarized-dark"] .border-orange-200 { border-color: #586e75 !important; }
+html[data-theme="solarized-dark"] .hover\:bg-blue-50:hover { background-color: #073642 !important; }
+html[data-theme="solarized-dark"] .hover\:bg-blue-100:hover { background-color: #586e75 !important; }
+
+/* Map overlay (tile picker) */
+html[data-theme="solarized-dark"] .bg-white\/90 { background-color: rgba(7,54,66,0.95) !important; }
+html[data-theme="solarized-dark"] .bg-gray-800  { background-color: #002b36 !important; }
+
+/* Misc overrides */
+html[data-theme="solarized-dark"] .opacity-60 { opacity: 0.5; }
+
+/* ─── Solarized Light ─────────────────────────────────────────────────────── */
+
+html[data-theme="solarized-light"] body,
+html[data-theme="solarized-light"] { background-color: #fdf6e3; color: #657b83; }
+
+html[data-theme="solarized-light"] .bg-white         { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .bg-gray-50        { background-color: #fdf6e3 !important; }
+html[data-theme="solarized-light"] .bg-gray-100       { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .min-h-screen      { background-color: #fdf6e3; }
+html[data-theme="solarized-light"] .hover\:bg-gray-50:hover { background-color: #eee8d5 !important; }
+
+html[data-theme="solarized-light"] .text-gray-900 { color: #002b36 !important; }
+html[data-theme="solarized-light"] .text-gray-800 { color: #073642 !important; }
+html[data-theme="solarized-light"] .text-gray-700 { color: #586e75 !important; }
+html[data-theme="solarized-light"] .text-gray-600 { color: #657b83 !important; }
+html[data-theme="solarized-light"] .text-gray-500 { color: #657b83 !important; }
+html[data-theme="solarized-light"] .text-gray-400 { color: #839496 !important; }
+html[data-theme="solarized-light"] .text-blue-600 { color: #268bd2 !important; }
+html[data-theme="solarized-light"] .text-blue-500 { color: #268bd2 !important; }
+
+html[data-theme="solarized-light"] .border-gray-50  { border-color: #fdf6e3 !important; }
+html[data-theme="solarized-light"] .border-gray-100 { border-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .border-gray-200 { border-color: #93a1a1 !important; }
+html[data-theme="solarized-light"] .border-gray-300 { border-color: #93a1a1 !important; }
+html[data-theme="solarized-light"] .divide-gray-50  > * + * { border-color: #fdf6e3 !important; }
+html[data-theme="solarized-light"] .divide-gray-100 > * + * { border-color: #eee8d5 !important; }
+
+html[data-theme="solarized-light"] .shadow-sm { box-shadow: 0 1px 3px rgba(0,43,54,0.1) !important; }
+
+/* Nav bar */
+html[data-theme="solarized-light"] .bg-blue-800 { background-color: #073642 !important; }
+html[data-theme="solarized-light"] .bg-blue-700 { background-color: #002b36 !important; }
+html[data-theme="solarized-light"] .hover\:bg-blue-700:hover { background-color: #002b36 !important; }
+html[data-theme="solarized-light"] .border-blue-700 { border-color: #002b36 !important; }
+html[data-theme="solarized-light"] .border-blue-600 { border-color: #073642 !important; }
+
+/* Notes / highlight boxes */
+html[data-theme="solarized-light"] .bg-amber-50  { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .bg-orange-50 { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .bg-blue-50   { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .border-amber-200  { border-color: #93a1a1 !important; }
+html[data-theme="solarized-light"] .border-orange-200 { border-color: #93a1a1 !important; }
+html[data-theme="solarized-light"] .hover\:bg-gray-50:hover  { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .hover\:bg-blue-50:hover  { background-color: #eee8d5 !important; }
+html[data-theme="solarized-light"] .hover\:bg-blue-100:hover { background-color: #93a1a1 !important; }
+
+/* Map overlay */
+html[data-theme="solarized-light"] .bg-white\/90 { background-color: rgba(238,232,213,0.95) !important; }
+
+html[data-theme="solarized-light"] .recharts-cartesian-grid-horizontal line,
+html[data-theme="solarized-light"] .recharts-cartesian-grid-vertical line { stroke: #eee8d5 !important; }
+html[data-theme="solarized-light"] .recharts-text { fill: #839496 !important; }
