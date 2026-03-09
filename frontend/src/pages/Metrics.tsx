@@ -262,42 +262,53 @@ export default function Fitness() {
         const toDisplayDist = (km: number) => system === "imperial" ? km / 1.60934 : km;
         const years = Object.keys(yearly.years);
 
-        // Build a per-year map of week → cumulative distance, carrying forward between run weeks
-        const yearWeekMaps: Record<string, Record<number, number>> = {};
-        for (const [year, weeks] of Object.entries(yearly.years)) {
-          const sorted = (weeks as { week: number; km: number }[]).slice().sort((a, b) => a.week - b.week);
+        // Month boundaries as day-of-year (non-leap) for X axis ticks
+        const MONTH_STARTS = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
+        const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const tickFormatter = (day: number) => {
+          const idx = MONTH_STARTS.indexOf(day);
+          return idx >= 0 ? MONTH_LABELS[idx] : "";
+        };
+
+        // Build per-year day→cumulative map, one step per workout, fill forward
+        const yearDayMaps: Record<string, Record<number, number>> = {};
+        for (const [year, entries] of Object.entries(yearly.years)) {
+          const sorted = (entries as { day: number; km: number }[]).slice().sort((a, b) => a.day - b.day);
           let cumulative = 0;
-          const weekMap: Record<number, number> = {};
-          for (const { week, km } of sorted) {
+          const dayMap: Record<number, number> = {};
+          for (const { day, km } of sorted) {
             cumulative += km;
-            weekMap[week] = Math.round(toDisplayDist(cumulative) * 10) / 10;
+            // Multiple runs on same day accumulate
+            dayMap[day] = Math.round(toDisplayDist(cumulative) * 10) / 10;
           }
-          // Fill forward so line stays flat between run weeks
-          const firstWeek = sorted[0]?.week ?? 1;
+          // Fill forward from first run day so line stays flat between workouts
+          const firstDay = sorted[0]?.day ?? 1;
           let lastVal = 0;
-          for (let w = firstWeek; w <= 53; w++) {
-            if (weekMap[w] !== undefined) lastVal = weekMap[w];
-            else weekMap[w] = lastVal;
+          for (let d = firstDay; d <= 366; d++) {
+            if (dayMap[d] !== undefined) lastVal = dayMap[d];
+            else dayMap[d] = lastVal;
           }
-          yearWeekMaps[year] = weekMap;
+          yearDayMaps[year] = dayMap;
         }
 
-        // Unified array: one entry per week 1-53, null for weeks before a year starts
-        const unifiedData = Array.from({ length: 53 }, (_, i) => {
-          const week = i + 1;
-          const entry: Record<string, number | null> = { week };
-          for (const year of years) entry[year] = yearWeekMaps[year][week] ?? null;
+        // Unified array: one entry per day 1-366, null before a year's first run
+        const unifiedData = Array.from({ length: 366 }, (_, i) => {
+          const day = i + 1;
+          const entry: Record<string, number | null> = { day };
+          for (const year of years) entry[year] = yearDayMaps[year][day] ?? null;
           return entry;
         });
 
-        // Custom tooltip: only show years that have a non-null value at this week
         const CumulativeTooltip = ({ active, payload, label }: any) => {
           if (!active || !payload?.length) return null;
           const visible = payload.filter((p: any) => p.value !== null && p.value !== undefined);
           if (!visible.length) return null;
+          // Convert day-of-year to month/day label
+          const d = new Date(2026, 0, label); // non-leap anchor year
+          const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
           return (
             <div className="bg-white border border-gray-200 rounded px-3 py-2 text-xs shadow">
-              <div className="font-semibold text-gray-600 mb-1">Week {label}</div>
+              <div className="font-semibold text-gray-600 mb-1">{dateLabel}</div>
               {visible.map((p: any) => (
                 <div key={p.name} style={{ color: p.stroke }}>{p.name}: {p.value.toFixed(1)} {distUnit}</div>
               ))}
@@ -312,7 +323,7 @@ export default function Fitness() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={unifiedData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="week" type="number" domain={[1, 53]} tickCount={14} tick={{ fontSize: 10 }} label={{ value: "Week", position: "insideBottomRight", offset: -4, fontSize: 10 }} />
+                  <XAxis dataKey="day" type="number" domain={[1, 366]} ticks={MONTH_STARTS} tickFormatter={tickFormatter} tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} unit={` ${distUnit}`} />
                   <Tooltip content={<CumulativeTooltip />} />
                   <Legend />

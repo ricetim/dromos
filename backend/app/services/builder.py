@@ -35,7 +35,12 @@ _PREFETCH_ZOOMS = range(12, 15)  # zooms 12-14; ~20-50 tiles per activity
 # ---------------------------------------------------------------------------
 
 def _json_default(obj):
-    if isinstance(obj, (datetime, date)):
+    if isinstance(obj, datetime):
+        # Naive datetimes are always UTC — append Z so browsers parse them correctly.
+        if obj.tzinfo is None:
+            return obj.isoformat() + "Z"
+        return obj.isoformat()
+    if isinstance(obj, date):
         return obj.isoformat()
     raise TypeError(f"Not JSON serializable: {type(obj)}")
 
@@ -186,12 +191,13 @@ def _compute_eddington(daily_miles: dict[str, float]) -> dict:
 
 def _compute_yearly(acts: list[dict]) -> dict:
     """
-    Group activity distances by ISO year and week number.
+    Collect activity distances by calendar year and day-of-year.
+    One entry per activity so the cumulative chart steps at each workout.
     acts: list of dicts with 'started_at' (ISO str or datetime) and 'distance_m'.
-    Returns: {years: {str_year: [{week, km}]}}
+    Returns: {years: {str_year: [{day, km}]}}
     """
     from collections import defaultdict
-    weekly: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    by_year: dict[str, list[dict]] = defaultdict(list)
 
     for a in acts:
         started = a["started_at"]
@@ -199,16 +205,13 @@ def _compute_yearly(acts: list[dict]) -> dict:
             dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
         else:
             dt = started
-        year = str(dt.isocalendar()[0])  # ISO year
-        week = dt.isocalendar()[1]        # ISO week 1-53
-        weekly[year][week] += a["distance_m"] / 1000.0  # km
+        year = str(dt.year)
+        day = dt.timetuple().tm_yday   # 1-366
+        by_year[year].append({"day": day, "km": round(a["distance_m"] / 1000.0, 2)})
 
     years_out = {}
-    for year, weeks in sorted(weekly.items()):
-        years_out[year] = [
-            {"week": w, "km": round(km, 2)}
-            for w, km in sorted(weeks.items())
-        ]
+    for year, entries in sorted(by_year.items()):
+        years_out[year] = sorted(entries, key=lambda e: e["day"])
     return {"years": years_out}
 
 
