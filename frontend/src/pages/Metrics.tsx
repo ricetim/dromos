@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { getVdot, getPersonalBests, getMetrics } from "../api/client";
+import { CHART_COLORS } from "../config";
 import { useUnits } from "../contexts/UnitsContext";
 
 function fmtTime(s: number): string {
@@ -36,7 +37,7 @@ const ZONE_DEFS = [
 ] as const;
 
 export default function Fitness() {
-  const { fmtPace } = useUnits();
+  const { fmtPace, system } = useUnits();
 
   const { data: vdotData, isLoading: vdotLoading } = useQuery({
     queryKey: ["vdot"],
@@ -254,38 +255,85 @@ export default function Fitness() {
         </div>
       )}
 
-      {/* Yearly Mileage Overlay */}
-      {yearly?.years && Object.keys(yearly.years).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Annual Mileage by Week</h2>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="week" type="number" domain={[1, 53]} tickCount={14} tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} unit=" km" />
-                <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)} km`, name]} />
-                <Legend />
-                {Object.entries(yearly.years).map(([year, weeks], i) => {
-                  const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
-                  return (
+      {/* Yearly Cumulative Mileage Overlay */}
+      {yearly?.years && Object.keys(yearly.years).length > 0 && (() => {
+        const COLORS = CHART_COLORS;
+        const distUnit = system === "imperial" ? "mi" : "km";
+        const toDisplayDist = (km: number) => system === "imperial" ? km / 1.60934 : km;
+        const years = Object.keys(yearly.years);
+
+        // Build a per-year map of week → cumulative distance, carrying forward between run weeks
+        const yearWeekMaps: Record<string, Record<number, number>> = {};
+        for (const [year, weeks] of Object.entries(yearly.years)) {
+          const sorted = (weeks as { week: number; km: number }[]).slice().sort((a, b) => a.week - b.week);
+          let cumulative = 0;
+          const weekMap: Record<number, number> = {};
+          for (const { week, km } of sorted) {
+            cumulative += km;
+            weekMap[week] = Math.round(toDisplayDist(cumulative) * 10) / 10;
+          }
+          // Fill forward so line stays flat between run weeks
+          const firstWeek = sorted[0]?.week ?? 1;
+          let lastVal = 0;
+          for (let w = firstWeek; w <= 53; w++) {
+            if (weekMap[w] !== undefined) lastVal = weekMap[w];
+            else weekMap[w] = lastVal;
+          }
+          yearWeekMaps[year] = weekMap;
+        }
+
+        // Unified array: one entry per week 1-53, null for weeks before a year starts
+        const unifiedData = Array.from({ length: 53 }, (_, i) => {
+          const week = i + 1;
+          const entry: Record<string, number | null> = { week };
+          for (const year of years) entry[year] = yearWeekMaps[year][week] ?? null;
+          return entry;
+        });
+
+        // Custom tooltip: only show years that have a non-null value at this week
+        const CumulativeTooltip = ({ active, payload, label }: any) => {
+          if (!active || !payload?.length) return null;
+          const visible = payload.filter((p: any) => p.value !== null && p.value !== undefined);
+          if (!visible.length) return null;
+          return (
+            <div className="bg-white border border-gray-200 rounded px-3 py-2 text-xs shadow">
+              <div className="font-semibold text-gray-600 mb-1">Week {label}</div>
+              {visible.map((p: any) => (
+                <div key={p.name} style={{ color: p.stroke }}>{p.name}: {p.value.toFixed(1)} {distUnit}</div>
+              ))}
+            </div>
+          );
+        };
+
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Cumulative Annual Mileage</h2>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={unifiedData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="week" type="number" domain={[1, 53]} tickCount={14} tick={{ fontSize: 10 }} label={{ value: "Week", position: "insideBottomRight", offset: -4, fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit={` ${distUnit}`} />
+                  <Tooltip content={<CumulativeTooltip />} />
+                  <Legend />
+                  {years.map((year, i) => (
                     <Line
                       key={year}
-                      data={weeks as { week: number; km: number }[]}
-                      dataKey="km"
+                      dataKey={year}
                       name={year}
                       stroke={COLORS[i % COLORS.length]}
                       strokeWidth={2}
                       dot={false}
-                      type="monotone"
+                      type="stepAfter"
+                      connectNulls={false}
                     />
-                  );
-                })}
-              </LineChart>
-            </ResponsiveContainer>
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
