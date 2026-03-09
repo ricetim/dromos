@@ -336,7 +336,7 @@ function Last7Days({ acts }: { acts: Activity[] }) {
         <div className="text-sm text-gray-500">
           <span className="font-bold text-gray-800">{totalDist} {distUnit}</span>
           <span className="mx-2 text-gray-300">·</span>
-          <span className="font-bold text-orange-500">{totalTrimp} AU</span>
+          <span className="font-bold text-orange-500">{totalTrimp}</span>
           <span className="text-xs text-gray-400 ml-1">TRIMP</span>
         </div>
       </div>
@@ -345,13 +345,13 @@ function Last7Days({ acts }: { acts: Activity[] }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} />
           <YAxis yAxisId="dist" tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
-          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={36} unit=" AU" />
+          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={36} />
           <Tooltip
             contentStyle={{ fontSize: 12 }}
             formatter={(v: number, name: string) =>
               name === "dist"
                 ? [`${v} ${distUnit}`, "Distance"]
-                : [`${v} AU`, "TRIMP"]
+                : [`${v}`, "TRIMP"]
             }
           />
           <Bar yAxisId="dist" dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
