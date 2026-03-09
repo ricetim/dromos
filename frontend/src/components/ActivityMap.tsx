@@ -231,8 +231,10 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
 
   const tile = TILE_LAYERS[tileKey];
 
+  const brighten = theme === "solarized-dark" && tileKey === "dark";
+
   return (
-    <div className="relative">
+    <div className={`relative${brighten ? " map-tiles-brightened" : ""}`}>
       {/* Tile layer selector */}
       <div className="absolute top-2 right-2 z-[1000] flex gap-1 bg-white/90 backdrop-blur-sm rounded-lg border border-gray-200 shadow px-1.5 py-1">
         {(Object.keys(TILE_LAYERS) as TileKey[]).map((k) => (
