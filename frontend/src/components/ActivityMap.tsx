@@ -96,17 +96,17 @@ function ColouredTrack({
 }: {
   segments: { coords: [number, number][]; colour: string }[];
 }) {
+  const { theme } = useTheme();
+  const isDark = theme === "solarized-dark";
+  const outlineColor = isDark ? "#002b36" : "#ffffff";
   return (
     <>
-      {/* Dark outer shadow for contrast */}
       {segments.map((seg, i) => (
         <Polyline key={`shadow-${i}`} positions={seg.coords} color="#000000" weight={6} opacity={0.15} />
       ))}
-      {/* White outline layer */}
       {segments.map((seg, i) => (
-        <Polyline key={`outline-${i}`} positions={seg.coords} color="#ffffff" weight={5} opacity={0.9} />
+        <Polyline key={`outline-${i}`} positions={seg.coords} color={outlineColor} weight={5} opacity={0.9} />
       ))}
-      {/* Coloured track on top */}
       {segments.map((seg, i) => (
         <Polyline key={`track-${i}`} positions={seg.coords} color={seg.colour} weight={3} />
       ))}
@@ -266,7 +266,7 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
         <ColouredTrack segments={paceSegments} />
       ) : (
         <>
-          <Polyline positions={coords} color="#ffffff" weight={5} opacity={0.8} />
+          <Polyline positions={coords} color={theme === "solarized-dark" ? "#002b36" : "#ffffff"} weight={5} opacity={0.8} />
           <Polyline positions={coords} color="#3b82f6" weight={3} />
         </>
       )}

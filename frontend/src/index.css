@@ -90,7 +90,7 @@ html[data-theme="solarized-dark"] .bg-white\/90 { background-color: rgba(7,54,66
 html[data-theme="solarized-dark"] .bg-gray-800  { background-color: #002b36 !important; }
 
 /* Map tiles — lift brightness slightly in dark theme */
-html[data-theme="solarized-dark"] .leaflet-tile { filter: brightness(1.4); }
+html[data-theme="solarized-dark"] .leaflet-tile { filter: brightness(1.7); }
 
 /* Misc overrides */
 html[data-theme="solarized-dark"] .opacity-60 { opacity: 0.5; }
