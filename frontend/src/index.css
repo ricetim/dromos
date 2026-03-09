@@ -89,6 +89,9 @@ html[data-theme="solarized-dark"] .hover\:bg-blue-100:hover { background-color: 
 html[data-theme="solarized-dark"] .bg-white\/90 { background-color: rgba(7,54,66,0.95) !important; }
 html[data-theme="solarized-dark"] .bg-gray-800  { background-color: #002b36 !important; }
 
+/* Map tiles — lift brightness slightly in dark theme */
+html[data-theme="solarized-dark"] .leaflet-tile { filter: brightness(1.4); }
+
 /* Misc overrides */
 html[data-theme="solarized-dark"] .opacity-60 { opacity: 0.5; }
 
