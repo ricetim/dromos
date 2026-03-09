@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
-import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints } from "../api/client";
+import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
+import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints, getProfile } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
+import { formatDateMonthDay, formatDateLong } from "../utils/dates";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 
@@ -199,9 +200,7 @@ function ActivityRow({ act }: { act: Activity }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-xs text-gray-400">
-            {new Date(act.started_at).toLocaleDateString(undefined, {
-              weekday: "short", month: "short", day: "numeric",
-            })}
+            {formatDateMonthDay(act.started_at)}
           </span>
           {act.rpe != null && act.rpe > 0 && <RpeBadge rpe={act.rpe} />}
         </div>
@@ -250,9 +249,7 @@ function FeaturedActivity({ act }: { act: Activity }) {
         <div className="flex-1 p-4">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs text-gray-400">
-              {new Date(act.started_at).toLocaleDateString(undefined, {
-                weekday: "long", month: "long", day: "numeric",
-              })}
+              {formatDateLong(act.started_at)}
             </span>
             {act.rpe != null && act.rpe > 0 && <RpeBadge rpe={act.rpe} />}
           </div>
@@ -288,59 +285,79 @@ function FeaturedActivity({ act }: { act: Activity }) {
   );
 }
 
-// ── weekly volume chart ───────────────────────────────────────────────────────
+// ── rolling 7-day volume + TRIMP chart ───────────────────────────────────────
 
-function isoMonday(d: Date): string {
-  const m = new Date(d);
-  m.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return `${m.getMonth() + 1}/${m.getDate()}`;
-}
+function RollingVolume({ acts }: { acts: Activity[] }) {
+  const { system } = useUnits();
+  const distUnit = system === "imperial" ? "mi" : "km";
 
-function WeeklyVolume({ acts }: { acts: Activity[] }) {
-  const { fmtDist, system } = useUnits();
+  const { data: profile } = useQuery({
+    queryKey: ["profile"],
+    queryFn: getProfile,
+    staleTime: Infinity,
+  });
+  const hrMax = profile?.hr_max ?? 185;
+  const hrRest = profile?.hr_rest ?? 50;
 
-  const weeks = useMemo(() => {
-    const now = new Date();
-    const buckets: { week: string; km: number }[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i * 7);
-      buckets.push({ week: isoMonday(d), km: 0 });
-    }
-    const keySet = new Set(buckets.map((b) => b.week));
+  const data = useMemo(() => {
+    // Aggregate distance (m) and TRIMP per calendar day
+    const dayMap: Record<string, { dist_m: number; trimp: number }> = {};
     for (const act of acts) {
-      const key = isoMonday(new Date(act.started_at));
-      if (keySet.has(key)) {
-        const b = buckets.find((b) => b.week === key)!;
-        b.km += act.distance_m / 1000;
+      const day = act.started_at.slice(0, 10);
+      if (!dayMap[day]) dayMap[day] = { dist_m: 0, trimp: 0 };
+      dayMap[day].dist_m += act.distance_m;
+      if (act.avg_hr && act.duration_s) {
+        const hrRatio = Math.max(0, (act.avg_hr - hrRest) / (hrMax - hrRest));
+        if (hrRatio > 0)
+          dayMap[day].trimp += (act.duration_s / 60) * hrRatio * 0.64 * Math.exp(1.92 * hrRatio);
       }
     }
-    return buckets.map((b) => ({
-      week: b.week,
-      value: system === "imperial" ? +(b.km * 0.621371).toFixed(1) : +b.km.toFixed(1),
-    }));
-  }, [acts, system]);
 
-  const maxVal = Math.max(...weeks.map((w) => w.value), 0);
-  if (maxVal === 0) return null;
+    // Rolling 7-day sums for each of the last 90 days
+    const result = [];
+    const now = new Date();
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const label = `${d.getMonth() + 1}/${d.getDate()}`;
+      let dist7 = 0, trimp7 = 0;
+      for (let j = 6; j >= 0; j--) {
+        const prev = new Date(d);
+        prev.setDate(d.getDate() - j);
+        const key = prev.toISOString().slice(0, 10);
+        if (dayMap[key]) { dist7 += dayMap[key].dist_m; trimp7 += dayMap[key].trimp; }
+      }
+      const distDisplay = system === "imperial" ? dist7 / 1609.34 : dist7 / 1000;
+      result.push({ date: label, dist7: +distDisplay.toFixed(1), trimp7: +trimp7.toFixed(0) });
+    }
+    return result;
+  }, [acts, system, hrMax, hrRest]);
+
+  if (!data.some((d) => d.dist7 > 0)) return null;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <h2 className="text-sm font-semibold text-gray-700 mb-3">
-        Weekly Volume <span className="font-normal text-gray-400 text-xs">(last 12 weeks)</span>
+        Rolling 7-Day Load{" "}
+        <span className="font-normal text-gray-400 text-xs">(last 90 days)</span>
       </h2>
-      <ResponsiveContainer width="100%" height={120}>
-        <BarChart data={weeks} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="20%">
+      <ResponsiveContainer width="100%" height={130}>
+        <ComposedChart data={data} margin={{ top: 4, right: 44, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-          <XAxis dataKey="week" tick={{ fontSize: 10 }} interval={2} />
-          <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v) => fmtDist(v * 1000)} domain={[0, "auto"]} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={13} />
+          <YAxis yAxisId="dist" tick={{ fontSize: 10 }} width={38} unit={` ${distUnit}`} />
+          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={38} unit=" AU" />
           <Tooltip
-            formatter={(v: number) => [fmtDist(v * 1000), system === "imperial" ? "Miles" : "km"]}
-            labelFormatter={(l) => `Week of ${l}`}
             contentStyle={{ fontSize: 12 }}
+            formatter={(v: number, name: string) =>
+              name === "dist7"
+                ? [`${v.toFixed(1)} ${distUnit}`, "7-day dist"]
+                : [`${Math.round(v)} AU`, "7-day TRIMP"]
+            }
           />
-          <Bar dataKey="value" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-        </BarChart>
+          <Area yAxisId="dist" type="monotone" dataKey="dist7" fill="#dbeafe" stroke="#3b82f6" strokeWidth={2} dot={false} />
+          <Line yAxisId="trimp" type="monotone" dataKey="trimp7" stroke="#f97316" strokeWidth={2} dot={false} />
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
@@ -406,8 +423,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Weekly volume */}
-      <WeeklyVolume acts={allActs} />
+      {/* Rolling 7-day volume + TRIMP */}
+      <RollingVolume acts={allActs} />
 
       {/* Most recent activity — large card */}
       {latestAct && (

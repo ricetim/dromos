@@ -94,6 +94,8 @@ export const updatePlanWorkout = (
     .patch(`/plans/${planId}/workouts/${workoutId}`, data)
     .then((r) => r.data);
 
+export const getProfile = () => api.get("/profile").then((r) => r.data);
+
 export const getSyncStatus = () =>
   api.get("/sync/status").then((r) => r.data);
 
