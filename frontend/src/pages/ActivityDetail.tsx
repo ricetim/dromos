@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes } from "../api/client";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes, getActivities } from "../api/client";
 import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateLong, formatTime } from "../utils/dates";
@@ -297,6 +297,33 @@ function BestEfforts({ actId, onSegmentSelect }: { actId: number; onSegmentSelec
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>();
   const actId = Number(id);
+  const navigate = useNavigate();
+
+  const { data: activities = [] } = useQuery<Activity[]>({
+    queryKey: ["activities"],
+    queryFn: getActivities,
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger while typing in an input, textarea, or select
+      const tag = (e.target as HTMLElement).tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+      const idx = activities.findIndex((a) => a.id === actId);
+      if (idx === -1) return;
+
+      if (e.key === "ArrowRight" && idx < activities.length - 1) {
+        navigate(`/activities/${activities[idx + 1].id}`);
+      } else if (e.key === "ArrowLeft" && idx > 0) {
+        navigate(`/activities/${activities[idx - 1].id}`);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activities, actId, navigate]);
+
   const [searchParams] = useSearchParams();
   const segStart = searchParams.get("seg_start") ? parseFloat(searchParams.get("seg_start")!) : null;
   const segEnd = searchParams.get("seg_end") ? parseFloat(searchParams.get("seg_end")!) : null;
