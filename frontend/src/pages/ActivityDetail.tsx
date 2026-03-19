@@ -302,6 +302,7 @@ export default function ActivityDetail() {
   const { data: activities = [] } = useQuery<Activity[]>({
     queryKey: ["activities"],
     queryFn: getActivities,
+    staleTime: 60_000,
   });
 
   useEffect(() => {
