@@ -1,5 +1,7 @@
 import pytest
 from pathlib import Path
+from app.models import Activity, ActivityShoe, Shoe
+from datetime import datetime
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.fit"
 
@@ -61,3 +63,72 @@ def test_list_activities_after_upload(client, tmp_path, monkeypatch):
     r = client.get("/api/activities")
     assert r.status_code == 200
     assert len(r.json()) == 1
+
+
+def _make_activity(session):
+    act = Activity(
+        source="manual_upload",
+        sport_type="running",
+        started_at=datetime(2024, 1, 1, 8, 0, 0),
+        duration_s=3600,
+        distance_m=10000,
+        elevation_gain_m=50,
+    )
+    session.add(act)
+    session.commit()
+    session.refresh(act)
+    return act
+
+
+def _make_shoe(session, name="Pegasus"):
+    shoe = Shoe(name=name, brand="Nike", retired=False)
+    session.add(shoe)
+    session.commit()
+    session.refresh(shoe)
+    return shoe
+
+
+def test_patch_activity_shoe_assigns(client, session):
+    from sqlmodel import select as sm_select
+    act = _make_activity(session)
+    shoe = _make_shoe(session)
+    r = client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": shoe.id})
+    assert r.status_code == 200
+    links = session.exec(sm_select(ActivityShoe).where(ActivityShoe.activity_id == act.id)).all()
+    assert len(links) == 1
+    assert links[0].shoe_id == shoe.id
+
+
+def test_patch_activity_shoe_replaces(client, session):
+    from sqlmodel import select as sm_select
+    act = _make_activity(session)
+    shoe1 = _make_shoe(session, "Shoe A")
+    shoe2 = _make_shoe(session, "Shoe B")
+    client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": shoe1.id})
+    r = client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": shoe2.id})
+    assert r.status_code == 200
+    links = session.exec(sm_select(ActivityShoe).where(ActivityShoe.activity_id == act.id)).all()
+    assert len(links) == 1
+    assert links[0].shoe_id == shoe2.id
+
+
+def test_patch_activity_shoe_clears(client, session):
+    from sqlmodel import select as sm_select
+    act = _make_activity(session)
+    shoe = _make_shoe(session)
+    client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": shoe.id})
+    r = client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": None})
+    assert r.status_code == 200
+    links = session.exec(sm_select(ActivityShoe).where(ActivityShoe.activity_id == act.id)).all()
+    assert len(links) == 0
+
+
+def test_patch_activity_shoe_404(client):
+    r = client.patch("/api/activities/999/shoe", json={"shoe_id": 1})
+    assert r.status_code == 404
+
+
+def test_patch_activity_shoe_invalid_shoe(client, session):
+    act = _make_activity(session)
+    r = client.patch(f"/api/activities/{act.id}/shoe", json={"shoe_id": 9999})
+    assert r.status_code == 404

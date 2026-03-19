@@ -311,3 +311,37 @@ def update_activity(
     _invalidate_list_cache()
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     return act
+
+
+@router.patch("/{activity_id}/shoe", status_code=200)
+def update_activity_shoe(
+    activity_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    act = session.get(Activity, activity_id)
+    if not act:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    shoe_id = data.get("shoe_id")
+    if shoe_id is not None:
+        from app.models import Shoe
+        if not session.get(Shoe, shoe_id):
+            raise HTTPException(status_code=404, detail="Shoe not found")
+
+    # Clear all existing shoe associations for this activity
+    session.exec(sa_delete(ActivityShoe).where(ActivityShoe.activity_id == activity_id))
+
+    # Assign the new shoe if provided
+    if shoe_id is not None:
+        session.add(ActivityShoe(activity_id=activity_id, shoe_id=shoe_id))
+
+    session.commit()
+    _invalidate_list_cache()
+    from app.routers.stats import _invalidate_stats_cache
+    _invalidate_stats_cache()
+    from app.services.builder import bg_rebuild_after_activity_update, bg_rebuild_globals
+    background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
+    background_tasks.add_task(bg_rebuild_globals)
+    return {"ok": True}
