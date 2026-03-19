@@ -80,6 +80,9 @@ export const createShoe = (data: object) =>
 export const updateShoe = (id: number, data: object) =>
   api.patch(`/shoes/${id}`, data).then((r) => r.data);
 
+export const updateActivityShoe = (activityId: number, shoeId: number | null) =>
+  api.patch(`/activities/${activityId}/shoe`, { shoe_id: shoeId }).then((r) => r.data);
+
 export const createPlan = (data: object) =>
   api.post("/plans", data).then((r) => r.data);
 
