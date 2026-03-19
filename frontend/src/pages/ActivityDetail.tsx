@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot } from "../api/client";
-import { Activity, DataPoint, Photo } from "../types";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes } from "../api/client";
+import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
+import { formatDateLong, formatTime } from "../utils/dates";
 import ActivityMap, { ActivityMapHandle } from "../components/ActivityMap";
 import ActivityCharts from "../components/ActivityCharts";
 import PhotoGallery from "../components/PhotoGallery";
@@ -43,14 +44,15 @@ const WEATHER_EMOJI: Record<string, string> = {
 };
 
 function WeatherBanner({ activity }: { activity: Activity }) {
+  const { fmtTemp, fmtPrecip } = useUnits();
   if (!activity.weather_condition) return null;
   const emoji = WEATHER_EMOJI[activity.weather_condition] ?? "🌡️";
-  const temp = activity.weather_temp_c != null ? `${Math.round(activity.weather_temp_c)}°C` : null;
+  const temp = activity.weather_temp_c != null ? fmtTemp(activity.weather_temp_c) : null;
   const feelsLike = activity.weather_feels_like_c != null &&
     Math.abs(activity.weather_feels_like_c - (activity.weather_temp_c ?? 0)) > 2
-    ? `feels ${Math.round(activity.weather_feels_like_c)}°` : null;
+    ? `feels ${fmtTemp(activity.weather_feels_like_c)}` : null;
   const precip = activity.weather_precip_mm != null && activity.weather_precip_mm > 0.1
-    ? `${activity.weather_precip_mm.toFixed(1)} mm` : null;
+    ? fmtPrecip(activity.weather_precip_mm) : null;
   const cloud = activity.weather_cloud_pct != null ? `${activity.weather_cloud_pct}% cloud` : null;
   const timeOfDay = activity.weather_is_daytime === false ? "🌙 Before/after daylight" : null;
 
@@ -345,6 +347,29 @@ export default function ActivityDetail() {
   });
   const hrMax = vdot?.hr_max ?? 185;
 
+  const queryClient = useQueryClient();
+
+  const { data: allShoes = [] } = useQuery<Shoe[]>({
+    queryKey: ["shoes"],
+    queryFn: getShoes,
+  });
+
+  const currentShoeId = shoes && shoes.length > 0 ? shoes[0].id : null;
+
+  // Active shoes + currently-assigned shoe (even if retired, so it shows correctly)
+  const activeShoes = allShoes.filter(
+    (s) => !s.retired || s.id === currentShoeId
+  );
+
+  const shoeMutation = useMutation({
+    mutationFn: (shoeId: number | null) => updateActivityShoe(actId, shoeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["activity-full", actId] });
+      queryClient.invalidateQueries({ queryKey: ["shoes"] });
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+    },
+  });
+
   // Convert elapsed seconds → nearest datapoint index
   function elapsedToIdx(targetS: number): number {
     if (!datapoints.length) return 0;
@@ -393,12 +418,8 @@ export default function ActivityDetail() {
     );
   }
 
-  const startDate = new Date(act.started_at).toLocaleDateString(undefined, {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  });
-  const startTime = new Date(act.started_at).toLocaleTimeString(undefined, {
-    hour: "2-digit", minute: "2-digit",
-  });
+  const startDate = formatDateLong(act.started_at);
+  const startTime = formatTime(act.started_at);
 
   return (
     <div className="p-4 max-w-5xl mx-auto space-y-4">
@@ -459,14 +480,26 @@ export default function ActivityDetail() {
         </div>
         <div className="px-5 pb-4">
           <WeatherBanner activity={act} />
-          {shoes && shoes.length > 0 && (
-            <div className="flex items-center gap-2 pt-2 mt-1 text-sm text-gray-600 flex-wrap">
-              <span className="text-base leading-none">👟</span>
-              {shoes.map((s) => (
-                <span key={s.id} className="text-gray-700">{s.name}</span>
+          <div className="flex items-center gap-2 pt-2 mt-1">
+            <span className="text-base leading-none">👟</span>
+            <select
+              value={currentShoeId ?? ""}
+              disabled={shoeMutation.isPending}
+              onChange={(e) => {
+                const val = e.target.value;
+                shoeMutation.mutate(val === "" ? null : parseInt(val, 10));
+              }}
+              className="text-sm border border-gray-200 rounded px-2 py-0.5 bg-white text-gray-700 disabled:opacity-50"
+            >
+              <option value="">No shoe</option>
+              {activeShoes.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}{s.brand ? ` (${s.brand})` : ""}</option>
               ))}
-            </div>
-          )}
+            </select>
+            {shoeMutation.isError && (
+              <span className="text-xs text-red-500">Failed to save</span>
+            )}
+          </div>
         </div>
       </div>
 
