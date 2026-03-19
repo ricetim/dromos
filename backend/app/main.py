@@ -1,8 +1,13 @@
+import os
 import threading
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 from app.database import create_db_and_tables
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -70,3 +75,44 @@ app.include_router(tiles.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Static file serving ────────────────────────────────────────────────────
+
+
+class SPAStaticFiles(StaticFiles):
+    """Serve React SPA: try the requested file, fall back to index.html for
+    client-side routes (e.g. /activities/123 → index.html).
+
+    Must catch starlette.exceptions.HTTPException (base class), not
+    fastapi.HTTPException (subclass) — StaticFiles raises the base class.
+    """
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+@app.middleware("http")
+async def cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/assets/"):
+        # Vite outputs content-hashed filenames — safe to cache forever
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif not path.startswith("/api/"):
+        # HTML and data files should always be re-validated
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+# Ensure data/static dir exists before mounting (created by builder on first run)
+_static_dir = Path(os.environ.get("DATA_DIR", "/data")) / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+
+# Mount order matters: specific prefixes before the catch-all "/"
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="data-static")
+app.mount("/", SPAStaticFiles(directory="/app/frontend", html=True), name="spa")

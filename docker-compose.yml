@@ -1,18 +1,11 @@
 services:
-  backend:
-    build: ./backend
+  app:
+    build: .
+    image: ricetim/runscribe:latest
+    ports:
+      - "80:8000"
     volumes:
       - ./data:/data
     env_file:
       - .env
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    volumes:
-      - ./data:/data
-    depends_on:
-      - backend
     restart: unless-stopped
