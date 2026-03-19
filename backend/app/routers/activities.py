@@ -13,9 +13,9 @@ from sqlmodel import Session, select
 
 from app.config import DATA_DIR
 from app.database import get_session
-from app.models import Activity, ActivityShoe, DataPoint, Photo, PlannedWorkout, Lap
+from app.models import Activity, ActivityShoe, DataPoint, Photo, PlannedWorkout, Lap, Shoe
 from app.services.fit_parser import parse_fit_file
-from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update
+from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals
 from app.services.weather import fetch_weather
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
@@ -326,7 +326,6 @@ def update_activity_shoe(
 
     shoe_id = data.get("shoe_id")
     if shoe_id is not None:
-        from app.models import Shoe
         if not session.get(Shoe, shoe_id):
             raise HTTPException(status_code=404, detail="Shoe not found")
 
@@ -341,7 +340,6 @@ def update_activity_shoe(
     _invalidate_list_cache()
     from app.routers.stats import _invalidate_stats_cache
     _invalidate_stats_cache()
-    from app.services.builder import bg_rebuild_after_activity_update, bg_rebuild_globals
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     background_tasks.add_task(bg_rebuild_globals)
     return {"ok": True}
