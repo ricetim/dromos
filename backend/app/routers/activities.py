@@ -303,7 +303,7 @@ def update_activity(
     act = session.get(Activity, activity_id)
     if not act:
         raise HTTPException(status_code=404, detail="Activity not found")
-    for key in {"notes", "strava_id", "rpe"}:
+    for key in {"notes", "name", "strava_id", "rpe"}:
         if key in data:
             setattr(act, key, data[key])
     session.add(act)

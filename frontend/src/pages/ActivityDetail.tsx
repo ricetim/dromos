@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros } from "../api/client";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivity, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros } from "../api/client";
 import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateLong, formatTime } from "../utils/dates";
@@ -400,11 +400,56 @@ export default function ActivityDetail() {
 
   const corosRefreshMutation = useMutation({
     mutationFn: () => refreshActivityFromCoros(actId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["activity-full", actId] });
+    onSuccess: (updatedActivity) => {
+      // Optimistically patch the cached activity-full data so UI updates instantly
+      // (static JSON rebuild happens async in background)
+      queryClient.setQueryData(["activity-full", actId], (old: any) =>
+        old ? { ...old, activity: { ...old.activity, ...updatedActivity } } : old
+      );
       queryClient.invalidateQueries({ queryKey: ["activities"] });
     },
   });
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const editMutation = useMutation({
+    mutationFn: (data: { name?: string | null; notes?: string | null }) =>
+      updateActivity(actId, data),
+    onSuccess: (updatedActivity) => {
+      queryClient.setQueryData(["activity-full", actId], (old: any) =>
+        old ? { ...old, activity: { ...old.activity, ...updatedActivity } } : old
+      );
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+    },
+  });
+
+  function startEditName() {
+    setNameDraft(act?.name ?? "");
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 0);
+  }
+
+  function saveName() {
+    const trimmed = nameDraft.trim();
+    editMutation.mutate({ name: trimmed || null });
+    setEditingName(false);
+  }
+
+  function startEditNotes() {
+    setNotesDraft(act?.notes ?? "");
+    setEditingNotes(true);
+    setTimeout(() => notesTextareaRef.current?.focus(), 0);
+  }
+
+  function saveNotes() {
+    editMutation.mutate({ notes: notesDraft.trim() || null });
+    setEditingNotes(false);
+  }
 
   // Convert elapsed seconds → nearest datapoint index
   function elapsedToIdx(targetS: number): number {
@@ -467,9 +512,30 @@ export default function ActivityDetail() {
             <Link to="/activities" className="text-xs text-blue-600 hover:underline mb-1.5 block">
               ← Activities
             </Link>
-            <h1 className="text-xl font-bold text-gray-900 capitalize leading-tight">
-              {act.name ?? act.sport_type.replace(/_/g, " ")}
-            </h1>
+            {editingName ? (
+              <form
+                onSubmit={(e) => { e.preventDefault(); saveName(); }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  ref={nameInputRef}
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={saveName}
+                  onKeyDown={(e) => { if (e.key === "Escape") setEditingName(false); }}
+                  placeholder={act.sport_type.replace(/_/g, " ")}
+                  className="text-xl font-bold text-gray-900 leading-tight border-b-2 border-blue-400 outline-none bg-transparent w-full capitalize"
+                />
+              </form>
+            ) : (
+              <h1
+                onClick={startEditName}
+                className="text-xl font-bold text-gray-900 capitalize leading-tight cursor-pointer hover:text-blue-700 transition-colors"
+                title="Click to edit title"
+              >
+                {act.name ?? act.sport_type.replace(/_/g, " ")}
+              </h1>
+            )}
             <p className="text-sm text-gray-500 mt-0.5">
               {startDate} · {startTime}
             </p>
@@ -555,11 +621,53 @@ export default function ActivityDetail() {
         </div>
       </div>
 
-      {/* Notes — shown directly below summary banner */}
-      {act.notes && (
+      {/* Notes — editable */}
+      {editingNotes ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{act.notes}</p>
+          <textarea
+            ref={notesTextareaRef}
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditingNotes(false);
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveNotes();
+            }}
+            rows={4}
+            placeholder="Add notes…"
+            className="w-full text-sm text-gray-700 bg-transparent outline-none resize-y leading-relaxed"
+          />
+          <div className="flex items-center justify-end gap-2 mt-2">
+            <span className="text-[10px] text-gray-400 mr-auto">Cmd+Enter to save · Esc to cancel</span>
+            <button
+              onClick={() => setEditingNotes(false)}
+              className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveNotes}
+              className="text-xs bg-amber-600 text-white hover:bg-amber-700 px-3 py-1 rounded transition-colors"
+            >
+              Save
+            </button>
+          </div>
         </div>
+      ) : act.notes ? (
+        <div
+          onClick={startEditNotes}
+          className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 cursor-pointer hover:border-amber-300 transition-colors group"
+          title="Click to edit notes"
+        >
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{act.notes}</p>
+          <span className="text-[10px] text-amber-400 group-hover:text-amber-600 transition-colors">Click to edit</span>
+        </div>
+      ) : (
+        <button
+          onClick={startEditNotes}
+          className="w-full text-left text-sm text-gray-400 hover:text-gray-600 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg px-4 py-3 transition-colors"
+        >
+          + Add notes…
+        </button>
       )}
 
       {/* Main body: laps sidebar + map/charts */}
