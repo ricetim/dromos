@@ -64,6 +64,9 @@ export const uploadFit = (file: File) => {
 export const updateActivity = (id: number, data: object) =>
   api.patch(`/activities/${id}`, data).then((r) => r.data);
 
+export const refreshActivityFromCoros = (id: number) =>
+  api.post(`/activities/${id}/refresh-coros`).then((r) => r.data);
+
 export const deleteActivity = (id: number) => api.delete(`/activities/${id}`);
 
 export const createGoal = (data: object) =>

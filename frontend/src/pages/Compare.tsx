@@ -11,6 +11,7 @@ import {
 import { getActivities, getActivityFull, getDataPoints } from "../api/client";
 import type { Activity, DataPoint } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
+import { formatDateShort, formatDateShortNoYear } from "../utils/dates";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ function ActivitySelector({
           .filter((a) => a.id !== exclude)
           .map((a) => (
             <option key={a.id} value={a.id}>
-              {new Date(a.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              {formatDateShort(a.started_at)}
               {" · "}{a.name ?? a.sport_type}
               {" · "}{fmtDist(a.distance_m)}
             </option>
@@ -299,12 +300,8 @@ export default function Compare() {
 
   const chartData = useMemo(() => buildCompareData(dpA, dpB), [dpA, dpB]);
 
-  const labelA = actA
-    ? (actA.name ?? new Date(actA.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }))
-    : "Run A";
-  const labelB = actB
-    ? (actB.name ?? new Date(actB.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }))
-    : "Run B";
+  const labelA = actA ? (actA.name ?? formatDateShortNoYear(actA.started_at)) : "Run A";
+  const labelB = actB ? (actB.name ?? formatDateShortNoYear(actB.started_at)) : "Run B";
 
   const hasHr = chartData.some((r) => r.hr_a != null || r.hr_b != null);
   const hasElev = chartData.some((r) => r.elev_a != null || r.elev_b != null);

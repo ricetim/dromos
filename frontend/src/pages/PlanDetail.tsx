@@ -2,6 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getPlan, getPlanWorkouts } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
+import { formatDateShort } from "../utils/dates";
 
 interface Workout {
   id: number;
@@ -62,9 +63,7 @@ function WorkoutRow({ w, fmtPace, fmtDist }: {
   const colorClass = TYPE_COLORS[w.workout_type] ?? "bg-gray-100 text-gray-600 border-gray-200";
   const ringClass  = STATUS_RING[w.status] ?? "";
   const typeLabel  = TYPE_LABEL[w.workout_type] ?? w.workout_type;
-  const dayLabel   = new Date(w.scheduled_date + "T12:00:00").toLocaleDateString(undefined, {
-    weekday: "short", month: "short", day: "numeric",
-  });
+  const dayLabel = formatDateShort(w.scheduled_date + "T12:00:00");
   const isQ = w.description.startsWith("Q");
 
   return (
@@ -156,9 +155,7 @@ export default function PlanDetail() {
             {plan.goal_distance && plan.source === "daniels" && ` · ${plan.goal_distance.toUpperCase()}`}
             {plan.target_vdot && ` · VDOT ${plan.target_vdot}`}
             {" · ends "}
-            {new Date(plan.goal_race_date + "T12:00:00").toLocaleDateString(undefined, {
-              month: "short", day: "numeric", year: "numeric",
-            })}
+            {formatDateShort(plan.goal_race_date + "T12:00:00")}
           </div>
         </div>
         <div className="text-right">

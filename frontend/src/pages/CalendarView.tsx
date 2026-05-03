@@ -82,8 +82,8 @@ export default function CalendarView() {
   }
 
   const weeks = buildCalendarGrid(year, month);
-  const monthLabel = new Date(year, month, 1).toLocaleString(undefined, {
-    month: "long", year: "numeric",
+  const monthLabel = new Date(year, month, 1).toLocaleString("en-US", {
+    month: "long", year: "numeric", timeZone: "America/Los_Angeles",
   });
 
   // Monthly summary: all activities whose started_at falls in this year/month

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { getVdot, getPersonalBests, getMetrics } from "../api/client";
+import { getPersonalBests, getMetrics } from "../api/client";
 import { CHART_COLORS } from "../config";
 import { useUnits } from "../contexts/UnitsContext";
 
@@ -28,22 +28,8 @@ const PB_DISTANCES = [
   "10k", "15k", "10 mile", "20k", "half", "25k", "30k", "marathon",
 ] as const;
 
-const ZONE_DEFS = [
-  { key: "easy",      label: "Easy",      loKey: "easy_hi", hiKey: "easy_lo", color: "bg-green-400",  textColor: "text-green-700",  desc: "Conversational aerobic base" },
-  { key: "marathon",  label: "Marathon",  loKey: "marathon", hiKey: null,      color: "bg-blue-400",   textColor: "text-blue-700",   desc: "Goal marathon pace" },
-  { key: "threshold", label: "Threshold", loKey: "threshold", hiKey: null,     color: "bg-yellow-400", textColor: "text-yellow-700", desc: "Comfortably hard, sustained" },
-  { key: "interval",  label: "Interval",  loKey: "interval", hiKey: null,      color: "bg-orange-400", textColor: "text-orange-700", desc: "~VO₂max effort, 3-5 min reps" },
-  { key: "reps",      label: "Repetition", loKey: "repetition", hiKey: null,   color: "bg-red-500",    textColor: "text-red-700",    desc: "Speed/form, short reps" },
-] as const;
-
 export default function Fitness() {
   const { fmtPace, system } = useUnits();
-
-  const { data: vdotData, isLoading: vdotLoading } = useQuery({
-    queryKey: ["vdot"],
-    queryFn: getVdot,
-    staleTime: Infinity,  // static file — only changes after a write
-  });
 
   const [expandedDist, setExpandedDist] = useState<string | null>(null);
   const { data: pbData, isLoading: pbLoading } = useQuery<PBData>({
@@ -61,79 +47,86 @@ export default function Fitness() {
   const eddington = metricsData?.eddington;
   const yearly = metricsData?.yearly;
 
-  const zones = vdotData?.pace_zones_s_per_km;
-
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Metrics</h1>
 
-      {/* VDOT hero */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <div className="text-xs text-gray-400 uppercase tracking-widest mb-1">Current VDOT</div>
-            {vdotLoading ? (
-              <div className="text-gray-400 text-sm">Calculating…</div>
-            ) : vdotData?.vdot ? (
-              <>
-                <div className="text-6xl font-black text-blue-600 leading-none">{vdotData.vdot}</div>
-                <div className="text-xs text-gray-400 mt-1">
-                  Based on {vdotData.sample_size} runs · last 28 days
-                  {vdotData.based_on_activity_id && (
-                    <Link
-                      to={`/activities/${vdotData.based_on_activity_id}`}
-                      className="ml-2 text-blue-500 hover:underline"
-                    >
-                      source activity →
-                    </Link>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="text-gray-400">No data — run more to get a VDOT estimate</div>
-            )}
-          </div>
+      {/* Yearly Cumulative Mileage Overlay — moved to top */}
+      {yearly?.years && Object.keys(yearly.years).length > 0 && (() => {
+        const COLORS = CHART_COLORS;
+        const distUnit = system === "imperial" ? "mi" : "km";
+        const toDisplayDist = (km: number) => system === "imperial" ? km / 1.60934 : km;
+        const years = Object.keys(yearly.years);
 
-          {/* Race predictions */}
-          {vdotData?.race_predictions_s && (
-            <div className="bg-gray-50 rounded-lg p-4 min-w-[180px]">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Race Predictions</div>
-              <div className="space-y-1.5">
-                {Object.entries(vdotData.race_predictions_s).map(([dist, s]) => (
-                  <div key={dist} className="flex items-center justify-between gap-6">
-                    <span className="text-sm text-gray-500 uppercase w-16">{dist}</span>
-                    <span className="text-sm font-bold text-gray-800 font-mono">
-                      {s ? fmtTime(s as number) : "–"}
-                    </span>
-                  </div>
-                ))}
-              </div>
+        const MONTH_STARTS = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
+        const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const tickFormatter = (day: number) => {
+          const idx = MONTH_STARTS.indexOf(day);
+          return idx >= 0 ? MONTH_LABELS[idx] : "";
+        };
+
+        const yearDayMaps: Record<string, Record<number, number>> = {};
+        for (const [year, entries] of Object.entries(yearly.years)) {
+          const sorted = (entries as { day: number; km: number }[]).slice().sort((a, b) => a.day - b.day);
+          let cumulative = 0;
+          const dayMap: Record<number, number> = {};
+          for (const { day, km } of sorted) {
+            cumulative += km;
+            dayMap[day] = Math.round(toDisplayDist(cumulative) * 10) / 10;
+          }
+          const firstDay = sorted[0]?.day ?? 1;
+          const lastDay = sorted[sorted.length - 1]?.day ?? firstDay;
+          let lastVal = 0;
+          for (let d = firstDay; d <= lastDay; d++) {
+            if (dayMap[d] !== undefined) lastVal = dayMap[d];
+            else dayMap[d] = lastVal;
+          }
+          yearDayMaps[year] = dayMap;
+        }
+
+        const unifiedData = Array.from({ length: 366 }, (_, i) => {
+          const day = i + 1;
+          const entry: Record<string, number | null> = { day };
+          for (const year of years) entry[year] = yearDayMaps[year][day] ?? null;
+          return entry;
+        });
+
+        const CumulativeTooltip = ({ active, payload, label }: any) => {
+          if (!active || !payload?.length) return null;
+          const visible = payload.filter((p: any) => p.value !== null && p.value !== undefined);
+          if (!visible.length) return null;
+          const d = new Date(2026, 0, label);
+          const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          return (
+            <div className="bg-white border border-gray-200 rounded px-3 py-2 text-xs shadow">
+              <div className="font-semibold text-gray-600 mb-1">{dateLabel}</div>
+              {visible.map((p: any) => (
+                <div key={p.name} style={{ color: p.stroke }}>{p.name}: {p.value.toFixed(1)} {distUnit}</div>
+              ))}
             </div>
-          )}
-        </div>
-      </div>
+          );
+        };
 
-      {/* Pace zones */}
-      {zones && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Training Pace Zones</h2>
-          <div className="space-y-3">
-            {ZONE_DEFS.map((z) => {
-              const lo = zones[z.loKey as keyof typeof zones] as number;
-              const hi = z.hiKey ? zones[z.hiKey as keyof typeof zones] as number : null;
-              const paceStr = hi ? `${fmtPace(hi)} – ${fmtPace(lo)}` : fmtPace(lo);
-              return (
-                <div key={z.key} className="flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${z.color}`} />
-                  <div className="w-24 text-sm font-semibold text-gray-700">{z.label}</div>
-                  <div className="text-sm font-mono text-gray-800 w-36">{paceStr}</div>
-                  <div className="text-xs text-gray-400 hidden sm:block">{z.desc}</div>
-                </div>
-              );
-            })}
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Cumulative Annual Mileage</h2>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={unifiedData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="day" type="number" domain={[1, 366]} ticks={MONTH_STARTS} tickFormatter={tickFormatter} tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit={` ${distUnit}`} />
+                  <Tooltip content={<CumulativeTooltip />} />
+                  <Legend />
+                  {years.map((year, i) => (
+                    <Line key={year} dataKey={year} name={year} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={false} type="stepAfter" connectNulls={false} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Personal bests */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
@@ -255,98 +248,6 @@ export default function Fitness() {
         </div>
       )}
 
-      {/* Yearly Cumulative Mileage Overlay */}
-      {yearly?.years && Object.keys(yearly.years).length > 0 && (() => {
-        const COLORS = CHART_COLORS;
-        const distUnit = system === "imperial" ? "mi" : "km";
-        const toDisplayDist = (km: number) => system === "imperial" ? km / 1.60934 : km;
-        const years = Object.keys(yearly.years);
-
-        // Month boundaries as day-of-year (non-leap) for X axis ticks
-        const MONTH_STARTS = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
-        const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        const tickFormatter = (day: number) => {
-          const idx = MONTH_STARTS.indexOf(day);
-          return idx >= 0 ? MONTH_LABELS[idx] : "";
-        };
-
-        // Build per-year day→cumulative map, one step per workout, fill forward
-        const yearDayMaps: Record<string, Record<number, number>> = {};
-        for (const [year, entries] of Object.entries(yearly.years)) {
-          const sorted = (entries as { day: number; km: number }[]).slice().sort((a, b) => a.day - b.day);
-          let cumulative = 0;
-          const dayMap: Record<number, number> = {};
-          for (const { day, km } of sorted) {
-            cumulative += km;
-            // Multiple runs on same day accumulate
-            dayMap[day] = Math.round(toDisplayDist(cumulative) * 10) / 10;
-          }
-          // Fill forward from first run day so line stays flat between workouts,
-          // but stop at the last actual run day (no trailing line into the future)
-          const firstDay = sorted[0]?.day ?? 1;
-          const lastDay = sorted[sorted.length - 1]?.day ?? firstDay;
-          let lastVal = 0;
-          for (let d = firstDay; d <= lastDay; d++) {
-            if (dayMap[d] !== undefined) lastVal = dayMap[d];
-            else dayMap[d] = lastVal;
-          }
-          yearDayMaps[year] = dayMap;
-        }
-
-        // Unified array: one entry per day 1-366, null before a year's first run
-        const unifiedData = Array.from({ length: 366 }, (_, i) => {
-          const day = i + 1;
-          const entry: Record<string, number | null> = { day };
-          for (const year of years) entry[year] = yearDayMaps[year][day] ?? null;
-          return entry;
-        });
-
-        const CumulativeTooltip = ({ active, payload, label }: any) => {
-          if (!active || !payload?.length) return null;
-          const visible = payload.filter((p: any) => p.value !== null && p.value !== undefined);
-          if (!visible.length) return null;
-          // Convert day-of-year to month/day label
-          const d = new Date(2026, 0, label); // non-leap anchor year
-          const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          return (
-            <div className="bg-white border border-gray-200 rounded px-3 py-2 text-xs shadow">
-              <div className="font-semibold text-gray-600 mb-1">{dateLabel}</div>
-              {visible.map((p: any) => (
-                <div key={p.name} style={{ color: p.stroke }}>{p.name}: {p.value.toFixed(1)} {distUnit}</div>
-              ))}
-            </div>
-          );
-        };
-
-        return (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Cumulative Annual Mileage</h2>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={unifiedData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="day" type="number" domain={[1, 366]} ticks={MONTH_STARTS} tickFormatter={tickFormatter} tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit={` ${distUnit}`} />
-                  <Tooltip content={<CumulativeTooltip />} />
-                  <Legend />
-                  {years.map((year, i) => (
-                    <Line
-                      key={year}
-                      dataKey={year}
-                      name={year}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      type="stepAfter"
-                      connectNulls={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

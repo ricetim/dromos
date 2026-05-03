@@ -1,9 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from "react";
+import { KM_PER_MI, FT_PER_M } from "../config";
 
 type System = "imperial" | "metric";
-
-const KM_PER_MI = 1.60934;
-const FT_PER_M  = 3.28084;
 
 interface UnitsCtx {
   system: System;
@@ -16,6 +14,10 @@ interface UnitsCtx {
   fmtElev: (m: number) => string;
   /** Shoe km → formatted distance string */
   fmtShoe: (km: number) => string;
+  /** Celsius → formatted temperature string (°F imperial, °C metric) */
+  fmtTemp: (c: number) => string;
+  /** Millimetres precipitation → formatted string (in imperial, mm metric) */
+  fmtPrecip: (mm: number) => string;
 }
 
 const Ctx = createContext<UnitsCtx | null>(null);
@@ -59,8 +61,18 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
     return km.toFixed(0) + " km";
   }
 
+  function fmtTemp(c: number): string {
+    if (system === "imperial") return `${Math.round(c * 9 / 5 + 32)}°F`;
+    return `${Math.round(c)}°C`;
+  }
+
+  function fmtPrecip(mm: number): string {
+    if (system === "imperial") return `${(mm / 25.4).toFixed(2)} in`;
+    return `${mm.toFixed(1)} mm`;
+  }
+
   return (
-    <Ctx.Provider value={{ system, toggle, fmtDist, fmtPace, fmtElev, fmtShoe }}>
+    <Ctx.Provider value={{ system, toggle, fmtDist, fmtPace, fmtElev, fmtShoe, fmtTemp, fmtPrecip }}>
       {children}
     </Ctx.Provider>
   );

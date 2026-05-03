@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
-import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints, getProfile } from "../api/client";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
+import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateMonthDay, formatDateLong } from "../utils/dates";
@@ -285,7 +285,7 @@ function FeaturedActivity({ act }: { act: Activity }) {
   );
 }
 
-// ── last 7 days volume + TRIMP ────────────────────────────────────────────────
+// ── last 7 days volume ────────────────────────────────────────────────────────
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -293,39 +293,25 @@ function Last7Days({ acts }: { acts: Activity[] }) {
   const { system } = useUnits();
   const distUnit = system === "imperial" ? "mi" : "km";
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile"],
-    queryFn: getProfile,
-    staleTime: Infinity,
-  });
-  const hrMax = profile?.hr_max ?? 185;
-  const hrRest = profile?.hr_rest ?? 50;
-
-  const { data, totalDist, totalTrimp } = useMemo(() => {
+  const { data, totalDist } = useMemo(() => {
     const now = new Date();
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now);
       d.setDate(d.getDate() - (6 - i));
-      return { key: d.toISOString().slice(0, 10), label: DAY_LABELS[d.getDay()], dist: 0, trimp: 0 };
+      return { key: d.toISOString().slice(0, 10), label: DAY_LABELS[d.getDay()], dist: 0 };
     });
 
     for (const act of acts) {
       const day = days.find((d) => d.key === act.started_at.slice(0, 10));
       if (!day) continue;
       day.dist += act.distance_m;
-      if (act.avg_hr && act.duration_s) {
-        const hrRatio = Math.max(0, (act.avg_hr - hrRest) / (hrMax - hrRest));
-        if (hrRatio > 0)
-          day.trimp += (act.duration_s / 60) * hrRatio * 0.64 * Math.exp(1.92 * hrRatio);
-      }
     }
 
     const toDisplay = (m: number) => system === "imperial" ? +(m / 1609.34).toFixed(1) : +(m / 1000).toFixed(1);
-    const rows = days.map((d) => ({ label: d.label, dist: toDisplay(d.dist), trimp: +d.trimp.toFixed(0) }));
+    const rows = days.map((d) => ({ label: d.label, dist: toDisplay(d.dist) }));
     const totalDist = toDisplay(days.reduce((s, d) => s + d.dist, 0));
-    const totalTrimp = +days.reduce((s, d) => s + d.trimp, 0).toFixed(0);
-    return { data: rows, totalDist, totalTrimp };
-  }, [acts, system, hrMax, hrRest]);
+    return { data: rows, totalDist };
+  }, [acts, system]);
 
   if (!data.some((d) => d.dist > 0)) return null;
 
@@ -333,30 +319,19 @@ function Last7Days({ acts }: { acts: Activity[] }) {
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700">Last 7 Days</h2>
-        <div className="text-sm text-gray-500">
-          <span className="font-bold text-gray-800">{totalDist} {distUnit}</span>
-          <span className="mx-2 text-gray-300">·</span>
-          <span className="font-bold text-orange-500">{totalTrimp}</span>
-          <span className="text-xs text-gray-400 ml-1">TRIMP</span>
-        </div>
+        <span className="text-sm font-bold text-gray-800">{totalDist} {distUnit}</span>
       </div>
       <ResponsiveContainer width="100%" height={110}>
-        <ComposedChart data={data} margin={{ top: 4, right: 44, left: 0, bottom: 0 }} barCategoryGap="25%">
+        <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-          <YAxis yAxisId="dist" tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
-          <YAxis yAxisId="trimp" orientation="right" tick={{ fontSize: 10 }} width={36} />
+          <YAxis tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
           <Tooltip
             contentStyle={{ fontSize: 12 }}
-            formatter={(v: number, name: string) =>
-              name === "dist"
-                ? [`${v} ${distUnit}`, "Distance"]
-                : [`${v}`, "TRIMP"]
-            }
+            formatter={(v: number) => [`${v} ${distUnit}`, "Distance"]}
           />
-          <Bar yAxisId="dist" dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-          <Line yAxisId="trimp" type="monotone" dataKey="trimp" stroke="#f97316" strokeWidth={2} dot={{ r: 3, fill: "#f97316" }} />
-        </ComposedChart>
+          <Bar dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );

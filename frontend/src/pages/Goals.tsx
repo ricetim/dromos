@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getGoals, createGoal, updateGoal, deleteGoal } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
-
-const KM_PER_MI = 1.60934;
+import { formatDateShortNoYear } from "../utils/dates";
+import { KM_PER_MI } from "../config";
 
 interface Goal {
   id: number;
@@ -98,8 +98,8 @@ function GoalCard({
 
   const pct = (progress_km / goal.target_value) * 100;
   const typeLabel = GOAL_TYPES.find((t) => t.value === goal.type)?.label ?? goal.type;
-  const start = new Date(goal.period_start).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
-  const end   = new Date(goal.period_end).toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
+  const start = formatDateShortNoYear(goal.period_start + "T12:00:00");
+  const end   = formatDateShortNoYear(goal.period_end + "T12:00:00");
 
   const now       = Date.now();
   const startMs   = new Date(goal.period_start).getTime();

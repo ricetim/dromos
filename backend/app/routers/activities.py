@@ -11,12 +11,13 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
-from app.config import DATA_DIR
+from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR
 from app.database import get_session
 from app.models import Activity, ActivityShoe, DataPoint, Photo, PlannedWorkout, Lap, Shoe
 from app.services.fit_parser import parse_fit_file
-from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals
+from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals, _rebuild_shoes, STATIC_DIR
 from app.services.weather import fetch_weather
+from app.services.coros import login as coros_login, list_activities as coros_list, get_activity_detail
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
@@ -313,6 +314,47 @@ def update_activity(
     return act
 
 
+@router.post("/{activity_id}/refresh-coros")
+def refresh_from_coros(
+    activity_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    """Re-fetch notes and RPE from Coros for an existing activity."""
+    act = session.get(Activity, activity_id)
+    if not act:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if act.source != "coros" or not act.external_id:
+        raise HTTPException(status_code=400, detail="Not a Coros activity")
+    if not COROS_EMAIL:
+        raise HTTPException(status_code=400, detail="Coros credentials not configured")
+
+    token, user_id = coros_login(COROS_EMAIL, COROS_PASSWORD)
+
+    # Find this activity in the Coros list to get the numeric sportType
+    remote = coros_list(token, user_id)
+    meta = next((m for m in remote if str(m.get("labelId", "")) == act.external_id), None)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Activity not found on Coros")
+
+    sport_type_str = str(meta.get("sportType", "100"))
+    detail = get_activity_detail(token, user_id, act.external_id, sport_type_str)
+
+    act.notes = detail["notes"]
+    act.rpe = detail["rpe"]
+    # Also update name if Coros has one and we don't
+    coros_name = meta.get("name") or None
+    if coros_name and not act.name:
+        act.name = coros_name
+
+    session.add(act)
+    session.commit()
+    session.refresh(act)
+    _invalidate_list_cache()
+    background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
+    return act
+
+
 @router.patch("/{activity_id}/shoe", status_code=200)
 def update_activity_shoe(
     activity_id: int,
@@ -340,6 +382,7 @@ def update_activity_shoe(
     _invalidate_list_cache()
     from app.routers.stats import _invalidate_stats_cache
     _invalidate_stats_cache()
+    _rebuild_shoes(session, STATIC_DIR)
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     background_tasks.add_task(bg_rebuild_globals)
     return {"ok": True}

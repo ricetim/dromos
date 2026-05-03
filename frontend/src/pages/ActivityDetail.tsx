@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes, getActivities } from "../api/client";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros } from "../api/client";
 import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateLong, formatTime } from "../utils/dates";
@@ -398,6 +398,14 @@ export default function ActivityDetail() {
     },
   });
 
+  const corosRefreshMutation = useMutation({
+    mutationFn: () => refreshActivityFromCoros(actId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["activity-full", actId] });
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+    },
+  });
+
   // Convert elapsed seconds → nearest datapoint index
   function elapsedToIdx(targetS: number): number {
     if (!datapoints.length) return 0;
@@ -470,6 +478,22 @@ export default function ActivityDetail() {
             <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full capitalize">
               {act.source.replace(/_/g, " ")}
             </span>
+            {act.source === "coros" && (
+              <button
+                onClick={() => corosRefreshMutation.mutate()}
+                disabled={corosRefreshMutation.isPending}
+                className="text-[11px] bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-50 px-2 py-0.5 rounded-full transition-colors"
+                title="Re-fetch notes and RPE from Coros"
+              >
+                {corosRefreshMutation.isPending ? "Refreshing…" : "Refresh from Coros"}
+              </button>
+            )}
+            {corosRefreshMutation.isSuccess && (
+              <span className="text-[11px] text-green-600">Updated</span>
+            )}
+            {corosRefreshMutation.isError && (
+              <span className="text-[11px] text-red-500">Refresh failed</span>
+            )}
             <Link
               to={`/compare?a=${actId}`}
               className="text-[11px] bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-0.5 rounded-full transition-colors"

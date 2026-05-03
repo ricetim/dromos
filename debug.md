@@ -115,3 +115,59 @@ All of these can be implemented without licensing concerns:
 | Grade-adjusted pace | Minetti et al., 2002 | 10.1152/japplphysiol.01177.2001 |
 | Lactate threshold | Conconi et al., 1982 | 10.1152/jappl.1982.52.4.869 |
 | Cadence optimization | Heiderscheit et al., 2011 | PMC3022995 |
+
+---
+
+## 2026-03-05
+
+### Performance optimizations
+
+**Issue: Activity list and maps load slowly**
+- Root cause: no DB indexes on frequently-queried columns; no compression; React Query refetching on every window focus
+- Fixes:
+  - Added compound index `(activity_id, timestamp)` on DataPoint table — makes per-activity datapoint queries ~10× faster
+  - Added index on `Activity.started_at DESC` — helps list ordering and stats date filtering
+  - Enabled SQLite WAL mode + 32MB page cache + MEMORY temp store
+  - Added FastAPI GZipMiddleware (1024-byte minimum) — reduces JSON payload 60-80%
+  - Added nginx gzip for all text/json/js types at compression level 6
+  - Added nginx `Cache-Control: immutable` for `/assets/` (hashed files cache forever)
+  - Set `refetchOnWindowFocus: false` globally in QueryClient — eliminates unnecessary refetches
+  - Set `staleTime: Infinity` for per-activity data (datapoints, track, laps, photos)
+  - Set `staleTime: 5min` for personal bests and VDOT
+  - Added prefetch-on-hover for activity detail in ActivityList and Dashboard ActivityRow
+  - Added `/activities/{id}/full` combined endpoint — reduces ActivityDetail from 5 → 2 HTTP requests
+  - Added server-side TTL cache for: activities list (30s), stats summary (60s), training load (120s), VDOT (5min), personal bests (5min)
+  - All caches invalidated on activity upload/delete
+
+**Issue: Recharts crosshair lines misaligned between main and dynamics charts**
+- Root cause: main chart had left YAxis width=52 (only when paceActive=true) and right YAxis width=40; dynamics chart had left YAxis width=40 and no right YAxis — plot areas were different widths, so same timestamp = different pixel x
+- Fix: both charts now always render left YAxis width=52 and right YAxis width=40; on main chart when pace is off, ticks/lines are hidden but the axis still occupies its 52px
+
+### Activity detail header redesign
+- Replaced separate header + individual stat cards with a single unified banner card
+- Top section: back link, activity name (uses Coros name if present, else sport type), date·time, source badge
+- Divider, then stats row: Distance | Time | Avg Pace | Elevation | HR (if present) | RPE (if present)
+- No individual borders between stats — unified feel
+
+---
+
+## 2026-03-06
+
+### Codebase audit & optimizations
+
+**Issue: `delete_activity` ran N+1 ORM-level DELETEs for DataPoints**
+- Root cause: `for dp in ...: session.delete(dp)` hydrates a full ORM object per DataPoint then deletes one-by-one
+- For a 10 km run (~3500 datapoints) this was ~3500 round trips instead of 1
+- Fix: replaced with `session.exec(sa_delete(DataPoint).where(...))` — single SQL `DELETE WHERE`
+- Also fixed: Photos and ActivityShoe rows were not deleted at all on activity delete (silent orphan records) — now bulk-deleted in the same transaction
+- Import added: `from sqlalchemy import delete as sa_delete`
+
+**Issue: `list_shoes` had N+1 query — one SUM per shoe**
+- Root cause: loop over shoes, each iteration ran `SELECT SUM(distance_m) ... WHERE shoe_id = ?`
+- Fix: single `SELECT shoe_id, SUM(distance_m) GROUP BY shoe_id` query then dict lookup per shoe
+
+**Issue: `Pillow` installed in backend Docker image but never imported**
+- `exif.py` uses only `exifread` for GPS extraction — Pillow was dead weight
+- Fix: removed `Pillow` from `backend/Dockerfile`
+- Result: backend image reduced from **222 MB → 201 MB** (saved ~21 MB)
+- Containers rebuilt and restarted (down && up) to pick up new image

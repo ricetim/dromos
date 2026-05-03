@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Link } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UnitsProvider, useUnits } from "./contexts/UnitsContext";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { getActivities, getStatsSummary, getPersonalBests, getVdot, getMetrics } from "./api/client";
 import ActivityList from "./pages/ActivityList";
 import Dashboard from "./pages/Dashboard";
@@ -49,6 +50,7 @@ const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
 
 function Nav() {
   const { system, toggle } = useUnits();
+  const { theme, setTheme, themes } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -78,7 +80,7 @@ function Nav() {
           ))}
         </div>
 
-        {/* Right: units toggle + hamburger */}
+        {/* Right: units toggle + theme selector + hamburger */}
         <div className="flex-1 flex items-center justify-end gap-2">
           <button
             onClick={toggle}
@@ -87,6 +89,16 @@ function Nav() {
           >
             {system === "imperial" ? "mi" : "km"}
           </button>
+          <select
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as typeof theme)}
+            className="px-2 py-1 rounded text-xs font-semibold bg-blue-700 hover:bg-blue-600 text-blue-100 border border-blue-600 transition-colors cursor-pointer"
+            title="Change theme"
+          >
+            {themes.map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
+            ))}
+          </select>
 
           {/* Hamburger — mobile only */}
           <button
@@ -124,6 +136,7 @@ function Nav() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <UnitsProvider>
         <BrowserRouter>
           <div className="min-h-screen">
@@ -149,6 +162,7 @@ export default function App() {
           </div>
         </BrowserRouter>
       </UnitsProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

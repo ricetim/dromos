@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getPlans, createPlan, deletePlan, getVdot } from "../api/client";
+import { formatDateShort } from "../utils/dates";
 
 interface Plan {
   id: number;
@@ -255,9 +256,7 @@ export default function Plans() {
                   <div className="text-xs text-gray-400 mt-0.5">
                     {plan.source === "daniels" ? "Daniels" : "Pfitzinger"} ·{" "}
                     {plan.goal_distance.toUpperCase()} · Race:{" "}
-                    {new Date(plan.goal_race_date).toLocaleDateString("en-GB", {
-                      month: "short", day: "numeric", year: "numeric",
-                    })}
+                    {formatDateShort(plan.goal_race_date + "T12:00:00")}
                   </div>
                   {plan.target_vdot && (
                     <div className="text-xs text-gray-400">VDOT {plan.target_vdot}</div>

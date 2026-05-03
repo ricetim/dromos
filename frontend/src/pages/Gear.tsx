@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getShoes, createShoe, updateShoe, triggerSync, getSyncStatus, getActivities } from "../api/client";
+import { getShoes, createShoe, updateShoe } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
-import { Activity } from "../types";
+import { SHOE_RETIREMENT_MI, SHOE_RETIREMENT_KM } from "../config";
 
 interface Shoe {
   id: number;
@@ -28,64 +28,16 @@ function MileageBar({ used, limit }: { used: number; limit: number }) {
 
 const KM_PER_MI = 1.60934;
 
-function StravaSync({ onSynced }: { onSynced: () => void }) {
-  const { data: syncStatus } = useQuery({
-    queryKey: ["sync-status"],
-    queryFn: getSyncStatus,
-    refetchInterval: 5000,   // poll while syncing
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: triggerSync,
-    onSuccess: () => {
-      // Refetch status after a short delay to let the background task start
-      setTimeout(() => onSynced(), 4000);
-    },
-  });
-
-  const status = syncStatus?.status ?? "never";
-  const lastTs = syncStatus?.ts ? new Date(syncStatus.ts).toLocaleTimeString() : null;
-
-  return (
-    <div className="flex items-center gap-2">
-      {status === "ok" && lastTs && (
-        <span className="text-xs text-gray-400">Synced {lastTs}</span>
-      )}
-      {status === "error" && (
-        <span className="text-xs text-red-500" title={syncStatus?.error}>Sync error</span>
-      )}
-      <button
-        onClick={() => syncMutation.mutate()}
-        disabled={syncMutation.isPending}
-        className="px-3 py-1.5 text-sm border border-orange-400 text-orange-600 rounded-lg hover:bg-orange-50 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
-      >
-        <svg className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114.93-2M20 15a8 8 0 01-14.93 2" />
-        </svg>
-        {syncMutation.isPending ? "Syncing…" : "Sync Strava"}
-      </button>
-    </div>
-  );
-}
-
 export default function Gear() {
   const qc = useQueryClient();
-  const { system, fmtShoe, fmtDist, fmtPace } = useUnits();
-  const defaultThreshold = system === "imperial" ? "500" : "800";
+  const { system, fmtShoe } = useUnits();
+  const defaultThreshold = system === "imperial" ? String(SHOE_RETIREMENT_MI) : String(SHOE_RETIREMENT_KM);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", brand: "", retirement_threshold: defaultThreshold });
-  const [expandedShoe, setExpandedShoe] = useState<number | null>(null);
 
   const { data: shoes = [] } = useQuery<Shoe[]>({
     queryKey: ["shoes"],
     queryFn: getShoes,
-  });
-
-  const { data: allActivities = [] } = useQuery<Activity[]>({
-    queryKey: ["activities"],
-    queryFn: getActivities,
-    enabled: expandedShoe !== null,
-    staleTime: 60_000,
   });
 
   const createMutation = useMutation({
@@ -119,7 +71,6 @@ export default function Gear() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-gray-800">Gear</h1>
         <div className="flex items-center gap-2">
-          <StravaSync onSynced={() => qc.invalidateQueries({ queryKey: ["shoes"] })} />
           <button
             onClick={() => setShowForm((v) => !v)}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -183,70 +134,29 @@ export default function Gear() {
 
       {active.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-100">
-          {active.map((shoe) => {
-            const isOpen = expandedShoe === shoe.id;
-            const shoeActs = isOpen && shoe.activity_ids
-              ? allActivities.filter((a) => shoe.activity_ids!.includes(a.id))
-                  .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
-              : [];
-            return (
-              <div key={shoe.id}>
+          {active.map((shoe) => (
+            <div key={shoe.id} className="flex items-center p-4 hover:bg-gray-50 transition-colors">
+              <Link
+                to={`/activities?shoe=${shoe.id}`}
+                className="flex-1 min-w-0"
+              >
+                <div className="font-medium text-gray-800">{shoe.name}</div>
+                {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
+                <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
+              </Link>
+              <div className="text-right ml-4 flex-shrink-0">
+                <div className="text-sm font-mono text-gray-700">
+                  {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
+                </div>
                 <button
-                  className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => setExpandedShoe(isOpen ? null : shoe.id)}
+                  onClick={() => retireMutation.mutate(shoe.id)}
+                  className="text-xs text-gray-400 hover:text-red-500 mt-1"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium text-gray-800 flex items-center gap-1.5">
-                        {shoe.name}
-                        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
-                    </div>
-                    <div className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="text-sm font-mono text-gray-700">
-                        {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
-                      </div>
-                      <button
-                        onClick={() => retireMutation.mutate(shoe.id)}
-                        className="text-xs text-gray-400 hover:text-red-500 mt-1"
-                      >
-                        Retire
-                      </button>
-                    </div>
-                  </div>
-                  <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
+                  Retire
                 </button>
-                {isOpen && (
-                  <div className="border-t border-gray-100 divide-y divide-gray-50">
-                    {shoeActs.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-gray-400">No runs recorded yet.</div>
-                    ) : shoeActs.map((a) => {
-                      const date = new Date(a.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-                      return (
-                        <Link
-                          key={a.id}
-                          to={`/activity/${a.id}`}
-                          className="flex items-center justify-between px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                        >
-                          <div>
-                            <div className="text-sm font-medium text-gray-700">{a.name ?? a.sport_type.replace(/_/g, " ")}</div>
-                            <div className="text-xs text-gray-400">{date}</div>
-                          </div>
-                          <div className="text-right text-sm font-mono text-gray-600">
-                            <div>{fmtDist(a.distance_m)}</div>
-                            <div className="text-xs text-gray-400">{fmtPace(a.avg_pace_s_per_km)}</div>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -261,7 +171,11 @@ export default function Gear() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Retired</h2>
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-50 opacity-60">
             {retired.map((shoe) => (
-              <div key={shoe.id} className="p-4 flex items-center justify-between">
+              <Link
+                key={shoe.id}
+                to={`/activities?shoe=${shoe.id}`}
+                className="p-4 flex items-center justify-between hover:opacity-80 transition-opacity"
+              >
                 <div>
                   <div className="font-medium text-gray-600">{shoe.name}</div>
                   {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
@@ -269,7 +183,7 @@ export default function Gear() {
                 <div className="text-sm font-mono text-gray-500">
                   {fmtShoe(shoe.total_distance_km)}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

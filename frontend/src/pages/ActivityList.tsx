@@ -1,24 +1,18 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { getActivities, uploadFit, getActivityFull, getDataPoints } from "../api/client";
+import { Link, useSearchParams } from "react-router-dom";
+import { getActivities, uploadFit, getActivityFull, getDataPoints, getShoes } from "../api/client";
 import { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
-
-const PAGE_SIZE = 20;
+import { formatDate } from "../utils/dates";
+import { PAGE_SIZE } from "../config";
 
 function formatDuration(s: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short", month: "short", day: "numeric", year: "numeric",
-  });
 }
 
 function formatWorkoutName(sportType: string, plannedWorkoutType?: string | null, name?: string | null): string {
@@ -74,11 +68,24 @@ export default function ActivityList() {
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const shoeIdParam = searchParams.get("shoe");
+  const shoeId = shoeIdParam ? parseInt(shoeIdParam, 10) : null;
 
   const { data: activities = [], isLoading } = useQuery<Activity[]>({
     queryKey: ["activities"],
     queryFn: getActivities,
   });
+
+  // Load shoes only when filtering by shoe
+  const { data: shoes = [] } = useQuery<{ id: number; name: string; activity_ids?: number[] }[]>({
+    queryKey: ["shoes"],
+    queryFn: getShoes,
+    enabled: shoeId !== null,
+    staleTime: 60_000,
+  });
+  const activeShoe = shoeId !== null ? shoes.find((s) => s.id === shoeId) : null;
+  const shoeActivityIds = activeShoe?.activity_ids ? new Set(activeShoe.activity_ids) : null;
 
   const upload = useMutation({
     mutationFn: uploadFit,
@@ -92,7 +99,10 @@ export default function ActivityList() {
 
   // Filter + search
   const filtered = activities.filter(
-    (a) => matchesFilter(a, quickFilter) && matchesSearch(a, search)
+    (a) =>
+      matchesFilter(a, quickFilter) &&
+      matchesSearch(a, search) &&
+      (shoeActivityIds === null || shoeActivityIds.has(a.id))
   );
 
   // Pagination
@@ -133,6 +143,23 @@ export default function ActivityList() {
       {upload.isError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
           Upload failed — make sure the file is a valid .fit file.
+        </div>
+      )}
+
+      {/* Shoe filter banner */}
+      {activeShoe && (
+        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+          <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h1.586A1 1 0 016.293 3.293L9 6h7a1 1 0 01.894 1.447l-3 6A1 1 0 0113 14H6a1 1 0 01-.894-.553L2.106 7.447A1 1 0 013 6h.001V4z" clipRule="evenodd" />
+          </svg>
+          <span>Showing runs in <strong>{activeShoe.name}</strong></span>
+          <button
+            onClick={() => setSearchParams({})}
+            className="ml-auto text-blue-400 hover:text-blue-700"
+            aria-label="Clear shoe filter"
+          >
+            ✕
+          </button>
         </div>
       )}
 

@@ -41,6 +41,80 @@ const DYN_OVERLAYS: { key: DynOverlay; label: string; colour: string }[] = [
   { key: "flight_time",   label: "Flight Time",    colour: "#84cc16" },
 ];
 
+// Garmin-style running dynamics percentile zone colors
+const DYN_ZONE_PURPLE = "#8b5cf6"; // >95th percentile
+const DYN_ZONE_BLUE   = "#3b82f6"; // 70–95th
+const DYN_ZONE_GREEN  = "#22c55e"; // 30–69th
+const DYN_ZONE_ORANGE = "#f97316"; // 5–29th
+const DYN_ZONE_RED    = "#ef4444"; // <5th
+
+/** Map a running dynamics metric value to its percentile zone color. */
+function getDynZoneColor(key: DynOverlay, value: number): string {
+  switch (key) {
+    case "vert_osc": { // stored in mm; table thresholds are in cm
+      const cm = value / 10;
+      if (cm < 6.4)  return DYN_ZONE_PURPLE;
+      if (cm <= 8.1)  return DYN_ZONE_BLUE;
+      if (cm <= 9.7)  return DYN_ZONE_GREEN;
+      if (cm <= 11.5) return DYN_ZONE_ORANGE;
+      return DYN_ZONE_RED;
+    }
+    case "vert_ratio": // stored as %
+      if (value < 6.1)  return DYN_ZONE_PURPLE;
+      if (value <= 7.4)  return DYN_ZONE_BLUE;
+      if (value <= 8.6)  return DYN_ZONE_GREEN;
+      if (value <= 10.1) return DYN_ZONE_ORANGE;
+      return DYN_ZONE_RED;
+    case "gct": // stored in ms
+      if (value < 218)  return DYN_ZONE_PURPLE;
+      if (value <= 248) return DYN_ZONE_BLUE;
+      if (value <= 277) return DYN_ZONE_GREEN;
+      if (value <= 308) return DYN_ZONE_ORANGE;
+      return DYN_ZONE_RED;
+    default:
+      return DYN_OVERLAYS.find((o) => o.key === key)?.colour ?? "#06b6d4";
+  }
+}
+
+/** Lower-inclusive breakpoints where the zone changes to the next color (in data units). */
+function getDynZoneBreakpoints(key: DynOverlay): number[] {
+  switch (key) {
+    case "vert_osc":   return [64, 82, 98, 116]; // mm: <64 purple, 64–81 blue, 82–97 green, 98–115 orange, ≥116 red
+    case "vert_ratio": return [6.1, 7.5, 8.7, 10.2]; // %
+    case "gct":        return [218, 249, 278, 309]; // ms
+    default:           return [];
+  }
+}
+
+/**
+ * Build SVG linearGradient stops (objectBoundingBox, y1=1→y2=0 = bottom→top)
+ * so the line is colored by zone based on its Y value.
+ * Duplicate offsets create hard color transitions (no blending).
+ */
+function computeDynGradientStops(
+  key: DynOverlay,
+  domain: [number, number],
+): Array<{ offset: string; color: string }> {
+  const [minV, maxV] = domain;
+  const range = maxV - minV;
+  if (range === 0) {
+    const c = getDynZoneColor(key, minV);
+    return [{ offset: "0%", color: c }, { offset: "100%", color: c }];
+  }
+  const stops: Array<{ offset: string; color: string }> = [];
+  let prevColor = getDynZoneColor(key, minV);
+  stops.push({ offset: "0%", color: prevColor });
+  for (const bp of getDynZoneBreakpoints(key)) {
+    if (bp <= minV || bp >= maxV) continue;
+    const pct = `${((bp - minV) / range) * 100}%`;
+    stops.push({ offset: pct, color: prevColor });
+    prevColor = getDynZoneColor(key, bp);
+    stops.push({ offset: pct, color: prevColor });
+  }
+  stops.push({ offset: "100%", color: prevColor });
+  return stops;
+}
+
 function formatElapsed(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -169,6 +243,24 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
     });
   }, [datapoints]);
 
+  // Per-metric zone colors derived from the median value of each dynamics metric
+  const dynColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    for (const o of DYN_OVERLAYS) {
+      const vals = data
+        .map((r) => r[o.key as keyof ChartRow] as number | null)
+        .filter((v): v is number => v != null);
+      if (vals.length) {
+        const sorted = [...vals].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        colors[o.key] = getDynZoneColor(o.key as DynOverlay, median);
+      } else {
+        colors[o.key] = o.colour;
+      }
+    }
+    return colors;
+  }, [data]);
+
   // Update formatter ref every render (fmtPace/fmtElev may depend on unit setting)
   fmtRef.current = {
     pace:          (v) => fmtPace(v),
@@ -186,6 +278,18 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
 
   const offset = zoomedRange?.[0] ?? 0;
   const displayData = zoomedRange ? data.slice(zoomedRange[0], zoomedRange[1] + 1) : data;
+
+  // Y-domain for each dynamic metric from the currently displayed data — used to position gradient stops
+  const dynDomains = useMemo(() => {
+    const domains: Record<string, [number, number] | null> = {};
+    for (const o of DYN_OVERLAYS) {
+      const vals = displayData
+        .map((r) => r[o.key as keyof ChartRow] as number | null)
+        .filter((v): v is number => v != null);
+      domains[o.key] = vals.length ? [Math.min(...vals), Math.max(...vals)] : null;
+    }
+    return domains;
+  }, [data, zoomedRange]);
 
   const hasPower = datapoints.some((dp) => dp.power_w !== null);
   const hasAltitude = datapoints.some((dp) => dp.altitude_m != null);
@@ -270,10 +374,16 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
   function buildCrossPayload(
     row: ChartRow,
     overlays: { key: string; label: string; colour: string }[],
+    colorOverrides?: Record<string, string>,
   ) {
     return overlays
       .filter((o) => row[o.key as keyof ChartRow] != null)
-      .map((o) => ({ name: o.label, dataKey: o.key, value: row[o.key as keyof ChartRow] as number, color: o.colour }));
+      .map((o) => ({
+        name: o.label,
+        dataKey: o.key,
+        value: row[o.key as keyof ChartRow] as number,
+        color: colorOverrides?.[o.key] ?? o.colour,
+      }));
   }
 
   if (!data.length) return null;
@@ -389,6 +499,7 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
                   const crossPayload = buildCrossPayload(
                     displayData[idx],
                     DYN_OVERLAYS.filter((o) => activeDyn.has(o.key)),
+                    dynColors,
                   );
                   if (crossPayload.length) showTip(dynTipRef.current, label, crossPayload, { x: coord.x, y: 8 }, cw);
                   else hideTip(dynTipRef.current);
@@ -498,24 +609,27 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
         <div className="border-t pt-4">
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <span className="text-xs font-semibold text-gray-500 mr-1">Running Dynamics</span>
-            {DYN_OVERLAYS.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => setActiveDyn((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(o.key)) next.delete(o.key); else next.add(o.key);
-                  return next;
-                })}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  activeDyn.has(o.key)
-                    ? "text-white border-transparent"
-                    : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
-                }`}
-                style={activeDyn.has(o.key) ? { backgroundColor: o.colour, borderColor: o.colour } : {}}
-              >
-                {o.label}
-              </button>
-            ))}
+            {DYN_OVERLAYS.map((o) => {
+              const col = dynColors[o.key] ?? o.colour;
+              return (
+                <button
+                  key={o.key}
+                  onClick={() => setActiveDyn((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(o.key)) next.delete(o.key); else next.add(o.key);
+                    return next;
+                  })}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    activeDyn.has(o.key)
+                      ? "text-white border-transparent"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+                  }`}
+                  style={activeDyn.has(o.key) ? { backgroundColor: col, borderColor: col } : {}}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
           </div>
 
           <div className="relative">
@@ -569,6 +683,20 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
                   hideLine(mainLineRef.current);
                 }}
               >
+                <defs>
+                  {DYN_OVERLAYS.filter((o) => activeDyn.has(o.key)).map((o) => {
+                    const domain = dynDomains[o.key];
+                    if (!domain) return null;
+                    const stops = computeDynGradientStops(o.key as DynOverlay, domain);
+                    return (
+                      <linearGradient key={o.key} id={`dyn-grad-${o.key}`} x1="0" x2="0" y1="1" y2="0">
+                        {stops.map((s, i) => (
+                          <stop key={i} offset={s.offset} stopColor={s.color} />
+                        ))}
+                      </linearGradient>
+                    );
+                  })}
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis
                   dataKey="elapsed_s"
@@ -611,20 +739,26 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
 
-                {DYN_OVERLAYS.filter((o) => activeDyn.has(o.key)).map((o) => (
-                  <Line
-                    key={o.key}
-                    yAxisId={o.key}
-                    type="monotone"
-                    dataKey={o.key}
-                    dot={false}
-                    stroke={o.colour}
-                    strokeWidth={1.5}
-                    name={o.label}
-                    connectNulls={false}
-                    isAnimationActive={false}
-                  />
-                ))}
+                {DYN_OVERLAYS.filter((o) => activeDyn.has(o.key)).map((o) => {
+                  const domain = dynDomains[o.key];
+                  const stroke = domain
+                    ? `url(#dyn-grad-${o.key})`
+                    : (dynColors[o.key] ?? o.colour);
+                  return (
+                    <Line
+                      key={o.key}
+                      yAxisId={o.key}
+                      type="monotone"
+                      dataKey={o.key}
+                      dot={false}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      name={o.label}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  );
+                })}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
