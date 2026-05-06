@@ -201,3 +201,81 @@ def test_bg_rebuild_after_delete_removes_files(session, act, tmp_path, monkeypat
     assert (tmp_path / "activities.json").exists()
     acts = json.loads((tmp_path / "activities.json").read_text())
     assert acts == []
+
+
+def test_rebuild_shoes_writes_timeline(session, tmp_path):
+    """Each shoe's timeline lists cumulative km in chronological order."""
+    from app.services.builder import _rebuild_shoes
+    from app.models import ActivityShoe
+
+    shoe = Shoe(name="Endorphin", retirement_threshold_km=800.0)
+    session.add(shoe)
+    session.flush()
+
+    a2 = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 6, 10, tzinfo=timezone.utc),
+        distance_m=8000.0, duration_s=2400, elevation_gain_m=50.0, sport_type="run",
+    )
+    a1 = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 1, 5, tzinfo=timezone.utc),
+        distance_m=5000.0, duration_s=1800, elevation_gain_m=20.0, sport_type="run",
+    )
+    session.add_all([a1, a2])
+    session.flush()
+    session.add_all([
+        ActivityShoe(activity_id=a1.id, shoe_id=shoe.id),
+        ActivityShoe(activity_id=a2.id, shoe_id=shoe.id),
+    ])
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    data = json.loads((tmp_path / "shoes.json").read_text())
+    assert len(data) == 1
+    s = data[0]
+
+    assert s["timeline"] == [
+        {"date": "2025-01-05", "cumulative_km": 5.0},
+        {"date": "2025-06-10", "cumulative_km": 13.0},
+    ]
+    assert s["years"] == [2025]
+    assert s["total_distance_km"] == 13.0
+
+
+def test_rebuild_shoes_timeline_empty_when_no_activities(session, tmp_path):
+    from app.services.builder import _rebuild_shoes
+    session.add(Shoe(name="Unused", retirement_threshold_km=800.0))
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    data = json.loads((tmp_path / "shoes.json").read_text())
+    assert data[0]["timeline"] == []
+    assert data[0]["years"] == []
+    assert data[0]["total_distance_km"] == 0.0
+
+
+def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
+    from app.services.builder import _rebuild_shoes
+    from app.models import ActivityShoe
+
+    shoe = Shoe(name="Multi", retirement_threshold_km=800.0)
+    session.add(shoe)
+    session.flush()
+    for year, dist in [(2024, 4000.0), (2024, 3000.0), (2025, 2000.0), (2026, 1000.0)]:
+        a = Activity(
+            source="manual_upload",
+            started_at=datetime(year, 3, 1, tzinfo=timezone.utc),
+            distance_m=dist, duration_s=1800, elevation_gain_m=10.0, sport_type="run",
+        )
+        session.add(a)
+        session.flush()
+        session.add(ActivityShoe(activity_id=a.id, shoe_id=shoe.id))
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    s = json.loads((tmp_path / "shoes.json").read_text())[0]
+    assert s["years"] == [2024, 2025, 2026]
+    cums = [pt["cumulative_km"] for pt in s["timeline"]]
+    assert cums == sorted(cums)
+    assert cums[-1] == 10.0

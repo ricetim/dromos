@@ -329,24 +329,33 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
 
     shoes = session.exec(select(Shoe)).all()
 
-    # Batch fetch all activity links for all shoes (one query)
-    all_links = session.exec(select(ActivityShoe.shoe_id, ActivityShoe.activity_id)).all()
-    acts_by_shoe: dict[int, list[int]] = defaultdict(list)
-    for link in all_links:
-        acts_by_shoe[link[0]].append(link[1])
+    rows = session.exec(
+        select(ActivityShoe.shoe_id, Activity.started_at, Activity.distance_m, Activity.id)
+        .join(Activity, ActivityShoe.activity_id == Activity.id)
+        .order_by(ActivityShoe.shoe_id, Activity.started_at)
+    ).all()
+
+    timelines: dict[int, list[dict]] = defaultdict(list)
+    years: dict[int, set[int]] = defaultdict(set)
+    act_ids: dict[int, list[int]] = defaultdict(list)
+    cum_m: dict[int, float] = defaultdict(float)
+    for shoe_id, started_at, distance_m, activity_id in rows:
+        cum_m[shoe_id] += distance_m or 0.0
+        timelines[shoe_id].append({
+            "date": started_at.date().isoformat(),
+            "cumulative_km": round(cum_m[shoe_id] / 1000, 1),
+        })
+        years[shoe_id].add(started_at.year)
+        act_ids[shoe_id].append(activity_id)
 
     result = []
     for shoe in shoes:
-        dist = session.exec(
-            select(func.sum(Activity.distance_m))
-            .join(ActivityShoe, ActivityShoe.activity_id == Activity.id)
-            .where(ActivityShoe.shoe_id == shoe.id)
-        ).first() or 0.0
-        act_ids = sorted(acts_by_shoe.get(shoe.id, []), reverse=True)
         result.append({
             **shoe.model_dump(),
-            "total_distance_km": round(dist / 1000, 1),
-            "activity_ids": act_ids,
+            "total_distance_km": round(cum_m.get(shoe.id, 0.0) / 1000, 1),
+            "activity_ids": sorted(act_ids.get(shoe.id, []), reverse=True),
+            "timeline": timelines.get(shoe.id, []),
+            "years": sorted(years.get(shoe.id, [])),
         })
     _write_json(static_dir / "shoes.json", result)
 

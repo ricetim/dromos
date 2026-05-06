@@ -115,4 +115,6 @@ _static_dir.mkdir(parents=True, exist_ok=True)
 
 # Mount order matters: specific prefixes before the catch-all "/"
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="data-static")
-app.mount("/", SPAStaticFiles(directory="/app/frontend", html=True), name="spa")
+_spa_dir = os.environ.get("SPA_DIR", "/app/frontend")
+if Path(_spa_dir).is_dir():
+    app.mount("/", SPAStaticFiles(directory=_spa_dir, html=True), name="spa")
