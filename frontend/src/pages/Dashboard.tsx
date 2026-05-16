@@ -178,9 +178,8 @@ function GoalsWidget() {
 
 // ── recent activity row ───────────────────────────────────────────────────────
 
-function formatWorkoutName(sportType: string, plannedWorkoutType?: string | null, name?: string | null): string {
+function formatWorkoutName(sportType: string, name?: string | null): string {
   if (name) return name;
-  if (plannedWorkoutType) return plannedWorkoutType;
   return sportType.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
@@ -205,7 +204,7 @@ function ActivityRow({ act }: { act: Activity }) {
           {act.rpe != null && act.rpe > 0 && <RpeBadge rpe={act.rpe} />}
         </div>
         <div className="text-sm font-semibold text-gray-900 mb-0.5">
-          {formatWorkoutName(act.sport_type, act.planned_workout_type, act.name)}
+          {formatWorkoutName(act.sport_type, act.name)}
         </div>
         {act.notes && (
           <p className="text-xs text-gray-400 truncate">

@@ -34,7 +34,6 @@ def create_db_and_tables():
         _add_column(conn, "datapoint", "stance_time_ms", "REAL")
         _add_column(conn, "activity", "rpe", "INTEGER")
         _add_column(conn, "activity", "name", "TEXT")
-        _add_column(conn, "plannedworkout", "optional", "INTEGER DEFAULT 0")
         _add_column(conn, "activity", "elevation_loss_m", "REAL")
         _add_column(conn, "shoe", "strava_gear_id", "TEXT")
         _add_column(conn, "activity", "weather_temp_c", "REAL")

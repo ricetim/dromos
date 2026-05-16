@@ -21,7 +21,6 @@ function sportColor(sport: string): string {
 
 function formatActivityName(act: Activity): string {
   if (act.name) return act.name;
-  if (act.planned_workout_type) return act.planned_workout_type;
   return act.sport_type.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 

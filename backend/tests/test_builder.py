@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session
 
-from app.models import Activity, DataPoint, Goal, Shoe, TrainingPlan
+from app.models import Activity, DataPoint, Goal, Shoe
 from app.services.builder import rebuild_activity, rebuild_globals, rebuild_all, _tile_xy
 from app.services.builder import _compute_eddington, _compute_yearly
 
@@ -73,7 +73,7 @@ def test_rebuild_activity_missing_activity_is_noop(session, tmp_path):
 def test_rebuild_globals_writes_all_files(session, act, tmp_path):
     rebuild_globals(session, static_dir=tmp_path)
 
-    for filename in ["activities.json", "dashboard.json", "goals.json", "shoes.json", "plans.json"]:
+    for filename in ["activities.json", "dashboard.json", "goals.json", "shoes.json"]:
         assert (tmp_path / filename).exists(), f"{filename} not found"
 
     acts = json.loads((tmp_path / "activities.json").read_text())

@@ -8,8 +8,6 @@ import ActivityList from "./pages/ActivityList";
 import Dashboard from "./pages/Dashboard";
 import Gear from "./pages/Gear";
 import Goals from "./pages/Goals";
-import Plans from "./pages/Plans";
-import PlanDetail from "./pages/PlanDetail";
 import CalendarView from "./pages/CalendarView";
 import Metrics from "./pages/Metrics";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -44,7 +42,6 @@ const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/calendar", label: "Calendar" },
   { to: "/gear", label: "Gear" },
   { to: "/goals", label: "Goals" },
-  { to: "/plans", label: "Plans" },
   { to: "/metrics", label: "Metrics" },
 ];
 
@@ -150,8 +147,6 @@ export default function App() {
                     <Route path="/activities/:id" element={<ActivityDetail />} />
                     <Route path="/gear" element={<Gear />} />
                     <Route path="/goals" element={<Goals />} />
-                    <Route path="/plans" element={<Plans />} />
-                    <Route path="/plans/:id" element={<PlanDetail />} />
                     <Route path="/calendar" element={<CalendarView />} />
                     <Route path="/metrics" element={<Metrics />} />
                     <Route path="/compare" element={<Compare />} />

@@ -1,9 +1,9 @@
 """
 Static JSON snapshot builder.
 
-After every write (upload, delete, goal, shoe, plan), the relevant
-snapshot files in STATIC_DIR are regenerated atomically. nginx serves
-these files directly, so reads never touch Python.
+After every write (upload, delete, goal, shoe), the relevant snapshot
+files in STATIC_DIR are regenerated atomically. nginx serves these
+files directly, so reads never touch Python.
 """
 import json
 import math
@@ -242,17 +242,16 @@ def _rebuild_metrics(session: Session, static_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def rebuild_globals(session: Session, static_dir: Path = STATIC_DIR) -> None:
-    """Rebuild activities.json, dashboard.json, goals.json, shoes.json, plans.json, metrics.json."""
+    """Rebuild activities.json, dashboard.json, goals.json, shoes.json, metrics.json."""
     _rebuild_activities(session, static_dir)
     _rebuild_dashboard(session, static_dir)
     _rebuild_goals(session, static_dir)
     _rebuild_shoes(session, static_dir)
-    _rebuild_plans(session, static_dir)
     _rebuild_metrics(session, static_dir)
 
 
 def _rebuild_activities(session: Session, static_dir: Path) -> None:
-    from app.models import Activity, ActivityShoe, DataPoint, PlannedWorkout, Shoe
+    from app.models import Activity, ActivityShoe, DataPoint, Shoe
 
     activities = session.exec(select(Activity).order_by(Activity.started_at.desc())).all()
     if not activities:
@@ -272,12 +271,6 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
     for row in gps_rows:
         gps_by_id[row[0]].append([row[1], row[2]])
 
-    planned = session.exec(
-        select(PlannedWorkout.completed_activity_id, PlannedWorkout.workout_type)
-        .where(PlannedWorkout.completed_activity_id.in_(ids))
-    ).all()
-    plan_type = {row[0]: row[1] for row in planned}
-
     shoe_rows = session.exec(
         select(ActivityShoe.activity_id, Shoe.name)
         .join(Shoe, Shoe.id == ActivityShoe.shoe_id)
@@ -291,7 +284,6 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
     for a in activities:
         d = a.model_dump()
         d["track"] = _downsample(gps_by_id.get(a.id, []))
-        d["planned_workout_type"] = plan_type.get(a.id)
         d["shoe_names"] = shoes_by_id.get(a.id, [])
         result.append(d)
 
@@ -360,42 +352,6 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
     _write_json(static_dir / "shoes.json", result)
 
 
-def _rebuild_plans(session: Session, static_dir: Path) -> None:
-    from app.models import PlannedWorkout, TrainingPlan
-
-    plans = session.exec(select(TrainingPlan)).all()
-    _write_json(static_dir / "plans.json", [p.model_dump() for p in plans])
-
-    # Workout statuses (today/missed/future) are computed at rebuild time and
-    # baked into the static file. Statuses become stale if the file is not
-    # rebuilt the next day. For this personal dashboard, the next upload or
-    # write will trigger a rebuild, keeping staleness bounded.
-    today = date.today()
-    for plan in plans:
-        workouts = session.exec(
-            select(PlannedWorkout)
-            .where(PlannedWorkout.training_plan_id == plan.id)
-            .order_by(PlannedWorkout.scheduled_date)
-        ).all()
-        workout_list = []
-        for w in workouts:
-            if w.completed_activity_id:
-                status = "completed"
-            elif w.workout_type == "rest":
-                status = "rest"
-            elif w.scheduled_date < today:
-                status = "missed"
-            elif w.scheduled_date == today:
-                status = "today"
-            else:
-                status = "future"
-            workout_list.append({**w.model_dump(), "status": status})
-        _write_json(static_dir / f"plan-{plan.id}.json", {
-            "plan": plan.model_dump(),
-            "workouts": workout_list,
-        })
-
-
 # ---------------------------------------------------------------------------
 # Full rebuild
 # ---------------------------------------------------------------------------
@@ -453,7 +409,7 @@ def bg_rebuild_after_activity_update(activity_id: int, static_dir: Path = STATIC
 
 
 def bg_rebuild_globals() -> None:
-    """Call after goal/shoe/plan changes."""
+    """Call after goal/shoe changes."""
     try:
         with _new_session() as session:
             rebuild_globals(session)

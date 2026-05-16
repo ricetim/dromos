@@ -45,14 +45,6 @@ export const getShoes = () => _fetchJson("/static/shoes.json");
 
 export const getMetrics = () => _fetchJson("/static/metrics.json");
 
-export const getPlans = () => _fetchJson("/static/plans.json");
-
-export const getPlan = (id: number) =>
-  _fetchJson(`/static/plan-${id}.json`).then((d) => d.plan);
-
-export const getPlanWorkouts = (id: number) =>
-  _fetchJson(`/static/plan-${id}.json`).then((d) => d.workouts);
-
 // ── write operations (still go through FastAPI) ───────────────────────────
 
 export const uploadFit = (file: File) => {
@@ -85,20 +77,6 @@ export const updateShoe = (id: number, data: object) =>
 
 export const updateActivityShoe = (activityId: number, shoeId: number | null) =>
   api.patch(`/activities/${activityId}/shoe`, { shoe_id: shoeId }).then((r) => r.data);
-
-export const createPlan = (data: object) =>
-  api.post("/plans", data).then((r) => r.data);
-
-export const deletePlan = (id: number) => api.delete(`/plans/${id}`);
-
-export const updatePlanWorkout = (
-  planId: number,
-  workoutId: number,
-  data: object
-) =>
-  api
-    .patch(`/plans/${planId}/workouts/${workoutId}`, data)
-    .then((r) => r.data);
 
 export const getProfile = () => api.get("/profile").then((r) => r.data);
 

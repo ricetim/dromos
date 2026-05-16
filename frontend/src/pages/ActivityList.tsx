@@ -15,9 +15,8 @@ function formatDuration(s: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function formatWorkoutName(sportType: string, plannedWorkoutType?: string | null, name?: string | null): string {
+function formatWorkoutName(sportType: string, name?: string | null): string {
   if (name) return name;
-  if (plannedWorkoutType) return plannedWorkoutType;
   return sportType
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -40,7 +39,7 @@ function matchesFilter(a: Activity, filter: QuickFilter): boolean {
     case "hard": return a.rpe != null && a.rpe >= 4;
     case "easy": return a.rpe != null && a.rpe <= 2;
     case "race": {
-      const haystack = [a.name, a.notes, a.planned_workout_type].join(" ").toLowerCase();
+      const haystack = [a.name, a.notes].join(" ").toLowerCase();
       return haystack.includes("race") || haystack.includes("5k") || haystack.includes("10k") ||
              haystack.includes("half marathon") || haystack.includes("marathon");
     }
@@ -57,7 +56,6 @@ function matchesSearch(a: Activity, q: string): boolean {
   return (
     (a.name ?? "").toLowerCase().includes(lower) ||
     (a.notes ?? "").toLowerCase().includes(lower) ||
-    (a.planned_workout_type ?? "").toLowerCase().includes(lower) ||
     a.sport_type.toLowerCase().includes(lower)
   );
 }
@@ -241,7 +239,7 @@ export default function ActivityList() {
                   {a.rpe != null && a.rpe > 0 && <RpeBadge rpe={a.rpe} />}
                 </div>
                 <div className="text-base font-semibold text-gray-900 mb-0.5">
-                  {formatWorkoutName(a.sport_type, a.planned_workout_type, a.name)}
+                  {formatWorkoutName(a.sport_type, a.name)}
                 </div>
                 {a.notes && (
                   <p className="text-xs text-gray-400 truncate leading-relaxed">

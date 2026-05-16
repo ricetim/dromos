@@ -26,3 +26,6 @@ docs/*.pdf
 .vscode/
 .idea/
 *.swp
+
+# Claude Code runtime state
+.claude/

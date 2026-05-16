@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR
 from app.database import get_session
-from app.models import Activity, ActivityShoe, DataPoint, Photo, PlannedWorkout, Lap, Shoe
+from app.models import Activity, ActivityShoe, DataPoint, Photo, Lap, Shoe
 from app.services.fit_parser import parse_fit_file
 from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals, _rebuild_shoes, STATIC_DIR
 from app.services.weather import fetch_weather
@@ -57,7 +57,6 @@ class ActivitySummary(BaseModel):
     rpe: Optional[int] = None
     name: Optional[str] = None
     track: list[list[float]] = []
-    planned_workout_type: Optional[str] = None
 
 
 def _downsample(points: list[list[float]], max_points: int = 150) -> list[list[float]]:
@@ -97,13 +96,6 @@ def list_activities(session: Session = Depends(get_session)):
     for row in gps_rows:
         gps_by_activity[row[0]].append([row[1], row[2]])
 
-    # Bulk fetch planned workout types linked to these activities
-    planned_rows = session.exec(
-        select(PlannedWorkout.completed_activity_id, PlannedWorkout.workout_type)
-        .where(PlannedWorkout.completed_activity_id.in_(activity_ids))
-    ).all()
-    planned_type_by_activity = {row[0]: row[1] for row in planned_rows}
-
     result = [
         ActivitySummary(
             id=a.id,
@@ -121,7 +113,6 @@ def list_activities(session: Session = Depends(get_session)):
             rpe=a.rpe,
             name=a.name,
             track=_downsample(gps_by_activity.get(a.id, [])),
-            planned_workout_type=planned_type_by_activity.get(a.id),
         )
         for a in activities
     ]

@@ -119,30 +119,3 @@ class Goal(SQLModel, table=True):
     notes: Optional[str] = None
 
 
-class TrainingPlan(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    source: str                          # "daniels" | "pfitzinger"
-    goal_race_date: date
-    goal_distance: str                   # "5k" | "10k" | "half" | "marathon"
-    start_date: date
-    target_vdot: Optional[float] = None
-    peak_weekly_km: Optional[float] = None
-    notes: Optional[str] = None
-
-    workouts: List["PlannedWorkout"] = Relationship(back_populates="plan")
-
-
-class PlannedWorkout(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    training_plan_id: int = Field(foreign_key="trainingplan.id", index=True)
-    scheduled_date: date
-    week_number: int
-    workout_type: str
-    description: str
-    target_distance_m: Optional[float] = None
-    target_pace_s_per_km: Optional[float] = None
-    completed_activity_id: Optional[int] = Field(default=None, foreign_key="activity.id")
-    optional: bool = False
-
-    plan: Optional[TrainingPlan] = Relationship(back_populates="workouts")

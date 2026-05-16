@@ -21,7 +21,6 @@ export interface Activity {
   weather_condition?: string | null;
   weather_is_daytime?: boolean | null;
   track?: [number, number][];
-  planned_workout_type?: string | null;
   shoe_names?: string[];
   shoes?: { id: number; name: string; brand: string | null }[];
 }
@@ -71,27 +70,3 @@ export interface Goal {
   notes: string | null;
 }
 
-export interface TrainingPlan {
-  id: number;
-  name: string;
-  source: string;
-  goal_race_date: string;
-  goal_distance: string;
-  start_date: string;
-  target_vdot: number | null;
-  peak_weekly_km: number | null;
-  notes: string | null;
-}
-
-export interface PlannedWorkout {
-  id: number;
-  training_plan_id: number;
-  scheduled_date: string;
-  week_number: number;
-  workout_type: string;
-  description: string;
-  target_distance_m: number | null;
-  target_pace_s_per_km: number | null;
-  completed_activity_id: number | null;
-  status?: "completed" | "missed" | "today" | "future";
-}
