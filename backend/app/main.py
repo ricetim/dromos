@@ -17,10 +17,11 @@ scheduler = BackgroundScheduler()
 def _startup_rebuild():
     """
     On first startup (no activities.json), run a full static rebuild.
-    On subsequent starts, warm the in-process TTL caches only.
+    Otherwise, rebuild globals so deploys pick up new JSON-shape changes,
+    then warm the in-process TTL caches.
     """
     from app.database import Session, engine
-    from app.services.builder import STATIC_DIR, rebuild_all
+    from app.services.builder import STATIC_DIR, rebuild_all, rebuild_globals
     from app.routers.activities import warm_cache as warm_activities
     from app.routers.stats import warm_cache as warm_stats
 
@@ -30,6 +31,8 @@ def _startup_rebuild():
             rebuild_all(session)
             print("[startup] Rebuild complete.")
         else:
+            print("[startup] Refreshing static globals...")
+            rebuild_globals(session)
             warm_activities(session)
             warm_stats(session)
 
@@ -61,13 +64,12 @@ app.add_middleware(
 )
 
 
-from app.routers import activities, stats, sync, shoes, goals, plans, profile, tiles
+from app.routers import activities, stats, sync, shoes, goals, profile, tiles
 app.include_router(activities.router)
 app.include_router(stats.router)
 app.include_router(sync.router)
 app.include_router(shoes.router)
 app.include_router(goals.router)
-app.include_router(plans.router)
 app.include_router(profile.router)
 app.include_router(tiles.router)
 

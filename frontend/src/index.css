@@ -75,6 +75,12 @@ html[data-theme="solarized-dark"] .recharts-tooltip-wrapper .recharts-default-to
   border-color: #586e75 !important;
   color: #93a1a1 !important;
 }
+/* Tooltip hover cursor: rect for BarChart, line for LineChart/AreaChart */
+html[data-theme="solarized-dark"] .recharts-tooltip-cursor {
+  fill: #586e75 !important;
+  fill-opacity: 0.2 !important;
+  stroke: #586e75 !important;
+}
 
 /* Notes / highlight boxes */
 html[data-theme="solarized-dark"] .bg-amber-50  { background-color: #073642 !important; }
@@ -147,3 +153,8 @@ html[data-theme="solarized-light"] .bg-white\/90 { background-color: rgba(238,23
 html[data-theme="solarized-light"] .recharts-cartesian-grid-horizontal line,
 html[data-theme="solarized-light"] .recharts-cartesian-grid-vertical line { stroke: #eee8d5 !important; }
 html[data-theme="solarized-light"] .recharts-text { fill: #839496 !important; }
+html[data-theme="solarized-light"] .recharts-tooltip-cursor {
+  fill: #839496 !important;
+  fill-opacity: 0.15 !important;
+  stroke: #839496 !important;
+}
