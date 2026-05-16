@@ -25,6 +25,10 @@ def _startup_rebuild():
     from app.routers.activities import warm_cache as warm_activities
     from app.routers.stats import warm_cache as warm_stats
 
+    # Remove orphaned static files for retired features (plans).
+    for stale in [STATIC_DIR / "plans.json", *STATIC_DIR.glob("plan-*.json")]:
+        stale.unlink(missing_ok=True)
+
     with Session(engine) as session:
         if not (STATIC_DIR / "activities.json").exists():
             print("[startup] Static files missing — running full rebuild...")
