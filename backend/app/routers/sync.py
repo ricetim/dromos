@@ -297,7 +297,9 @@ def _sync_coros() -> None:
                         session.add(act)
                     continue
                 fit_bytes = download_fit(token, user_id, ext_id, sport_type_str)
-                dest = DATA_DIR / f"{uuid.uuid4()}.fit"
+                fit_dir = DATA_DIR / "fit_files"
+                fit_dir.mkdir(exist_ok=True)
+                dest = fit_dir / f"{uuid.uuid4()}.fit"
                 dest.write_bytes(fit_bytes)
                 result = parse_fit_file(dest)
                 detail = get_activity_detail(token, user_id, ext_id, sport_type_str)

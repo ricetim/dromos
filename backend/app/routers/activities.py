@@ -201,7 +201,9 @@ def upload_fit(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    dest = DATA_DIR / f"{uuid.uuid4()}.fit"
+    fit_dir = DATA_DIR / "fit_files"
+    fit_dir.mkdir(exist_ok=True)
+    dest = fit_dir / f"{uuid.uuid4()}.fit"
     with dest.open("wb") as buf:
         shutil.copyfileobj(file.file, buf)
 
