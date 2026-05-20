@@ -425,7 +425,7 @@ def test_compute_period_data_year_53_weeks_2026(session):
     assert volume["buckets"][0]["km"] == 8.0
 
 
-def test_rebuild_globals_writes_volume_field(session, tmp_path, monkeypatch):
+def test_rebuild_dashboard_writes_volume_field(session, tmp_path, monkeypatch):
     """dashboard.json must contain summary{} and volume{} for all three periods."""
     fake_today = _date(2026, 5, 20)
 
@@ -435,7 +435,7 @@ def test_rebuild_globals_writes_volume_field(session, tmp_path, monkeypatch):
     _make_act(session, _date(2026, 5, 16), distance_m=5000.0)
     _make_act(session, _date(2026, 5, 18), distance_m=8000.0)
 
-    rebuild_globals(session, static_dir=tmp_path)
+    builder_mod._rebuild_dashboard(session, tmp_path)
 
     data = json.loads((tmp_path / "dashboard.json").read_text())
     assert set(data["summary"].keys()) == {"last_7_days", "month", "year"}
