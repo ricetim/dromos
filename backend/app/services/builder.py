@@ -110,6 +110,44 @@ def _bucket_by_day(acts, start: date, end: date, label_style: str) -> list[dict]
     return buckets
 
 
+def _sunday_on_or_before(d: date) -> date:
+    """Return the Sunday on or before d. Python: weekday() Mon=0..Sun=6."""
+    days_since_sun = (d.weekday() + 1) % 7   # Sun=0, Mon=1, ... Sat=6
+    return d - timedelta(days=days_since_sun)
+
+
+def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
+    """
+    Sunday-start weekly buckets covering [start, end].
+
+    The first bucket's date is the Sunday on or before `start`.
+    The bucket's `label` is the first calendar date in [start, end] that
+    falls in that week (e.g. "Jan 1" if year starts mid-week).
+    Only activities with date in [start, end] count toward km totals.
+    """
+    first_sun = _sunday_on_or_before(start)
+    buckets = []
+    cur = first_sun
+    while cur <= end:
+        week_end = cur + timedelta(days=6)
+        clamp_lo = max(cur, start)
+        clamp_hi = min(week_end, end)
+        total_m = 0.0
+        for a in acts:
+            d = a.started_at.date()
+            if clamp_lo <= d <= clamp_hi:
+                total_m += a.distance_m
+        label_date = clamp_lo
+        label = f"{label_date.strftime('%b')} {label_date.day}"
+        buckets.append({
+            "date": cur.isoformat(),
+            "label": label,
+            "km": round(total_m / 1000.0, 2),
+        })
+        cur += timedelta(days=7)
+    return buckets
+
+
 # ---------------------------------------------------------------------------
 # Per-activity rebuild
 # ---------------------------------------------------------------------------

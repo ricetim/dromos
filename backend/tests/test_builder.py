@@ -286,7 +286,7 @@ def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
 # ──────────────────────────────────────────────────────────────────────────
 
 from datetime import date as _date, timedelta
-from app.services.builder import _bucket_by_day
+from app.services.builder import _bucket_by_day, _bucket_by_week_sun_start
 
 
 def _make_act(session, started_at_date, distance_m=5000.0):
@@ -342,3 +342,30 @@ def test_bucket_by_day_month_uses_day_of_month_labels(session):
     assert buckets[30] == {"date": "2026-05-31", "label": "31", "km": 0.0}
 
 
+def test_bucket_by_week_sun_start_2026(session):
+    """
+    Year 2026 starts on Thursday Jan 1.
+    First weekly bucket date is Sun Dec 28, 2025 (Sunday on or before Jan 1).
+    Label is "Jan 1" (first in-year date in that week).
+    Only mileage from Jan 1 onward counts (Dec 28-31 runs are ignored).
+    """
+    start = _date(2026, 1, 1)
+    end = _date(2026, 12, 31)
+
+    _make_act(session, _date(2025, 12, 29), distance_m=10000.0)  # OUT of year
+    _make_act(session, _date(2026, 1, 2), distance_m=8000.0)     # IN first week
+    _make_act(session, _date(2026, 1, 11), distance_m=6000.0)    # IN second week (Sun)
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    buckets = _bucket_by_week_sun_start(acts, start, end)
+
+    assert len(buckets) == 53
+    assert buckets[0]["date"] == "2025-12-28"
+    assert buckets[0]["label"] == "Jan 1"
+    assert buckets[0]["km"] == 8.0
+    assert buckets[1]["date"] == "2026-01-04"
+    assert buckets[1]["label"] == "Jan 4"
+    assert buckets[2]["date"] == "2026-01-11"
+    assert buckets[2]["km"] == 6.0
+    assert buckets[-1]["date"] == "2026-12-27"
