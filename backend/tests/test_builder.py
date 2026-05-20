@@ -286,7 +286,7 @@ def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
 # ──────────────────────────────────────────────────────────────────────────
 
 from datetime import date as _date, timedelta
-from app.services.builder import _bucket_by_day, _bucket_by_week_sun_start
+from app.services.builder import _bucket_by_day, _bucket_by_week_sun_start, _compute_period_data
 
 
 def _make_act(session, started_at_date, distance_m=5000.0):
@@ -369,3 +369,56 @@ def test_bucket_by_week_sun_start_2026(session):
     assert buckets[2]["date"] == "2026-01-11"
     assert buckets[2]["km"] == 6.0
     assert buckets[-1]["date"] == "2026-12-27"
+
+
+def test_compute_period_data_last_7_days_sum_matches_summary(session):
+    """volume[period].total_km MUST equal summary[period].total_distance_km."""
+    today = _date(2026, 5, 20)
+    _make_act(session, _date(2026, 5, 16), distance_m=5000.0)
+    _make_act(session, _date(2026, 5, 18), distance_m=8000.0)
+    _make_act(session, _date(2026, 4, 30), distance_m=99000.0)
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    summary, volume = _compute_period_data(acts, "last_7_days", today)
+
+    assert summary["count"] == 2
+    assert summary["total_distance_km"] == 13.0
+    assert volume["total_km"] == 13.0
+    assert sum(b["km"] for b in volume["buckets"]) == 13.0
+    assert len(volume["buckets"]) == 7
+
+
+def test_compute_period_data_month_uses_calendar_boundaries(session):
+    today = _date(2026, 5, 20)
+    _make_act(session, _date(2026, 5, 1), distance_m=4000.0)
+    _make_act(session, _date(2026, 5, 31), distance_m=10000.0)
+    _make_act(session, _date(2026, 4, 30), distance_m=99000.0)
+    _make_act(session, _date(2026, 6, 1), distance_m=99000.0)
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    summary, volume = _compute_period_data(acts, "month", today)
+
+    assert summary["count"] == 2
+    assert summary["total_distance_km"] == 14.0
+    assert volume["total_km"] == 14.0
+    assert len(volume["buckets"]) == 31
+    assert volume["buckets"][0]["km"] == 4.0
+    assert volume["buckets"][30]["km"] == 10.0
+
+
+def test_compute_period_data_year_53_weeks_2026(session):
+    today = _date(2026, 5, 20)
+    _make_act(session, _date(2026, 1, 2), distance_m=8000.0)
+    _make_act(session, _date(2025, 12, 31), distance_m=99000.0)
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    summary, volume = _compute_period_data(acts, "year", today)
+
+    assert summary["count"] == 1
+    assert summary["total_distance_km"] == 8.0
+    assert volume["total_km"] == 8.0
+    assert len(volume["buckets"]) == 53
+    assert volume["buckets"][0]["km"] == 8.0

@@ -148,6 +148,61 @@ def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
     return buckets
 
 
+def _weighted_avg_pace_s_per_km(acts) -> float | None:
+    total_km = sum(a.distance_m for a in acts) / 1000.0
+    total_s = sum(a.duration_s for a in acts)
+    if total_km <= 0:
+        return None
+    return round(total_s / total_km, 1)
+
+
+def _compute_period_data(acts, period: str, today: date) -> tuple[dict, dict]:
+    """
+    Compute (summary, volume) for one period.
+
+    Invariant: summary["total_distance_km"] == volume["total_km"].
+    """
+    if period == "last_7_days":
+        start = today - timedelta(days=6)
+        end = today
+        label_style = "weekday"
+        weekly = False
+    elif period == "month":
+        start = today.replace(day=1)
+        if start.month == 12:
+            end = date(start.year, 12, 31)
+        else:
+            end = date(start.year, start.month + 1, 1) - timedelta(days=1)
+        label_style = "day_of_month"
+        weekly = False
+    elif period == "year":
+        start = date(today.year, 1, 1)
+        end = date(today.year, 12, 31)
+        weekly = True
+    else:
+        raise ValueError(f"unknown period: {period}")
+
+    in_period = [a for a in acts if start <= a.started_at.date() <= end]
+    total_km = round(sum(a.distance_m for a in in_period) / 1000.0, 2)
+
+    summary = {
+        "period": period,
+        "count": len(in_period),
+        "total_distance_km": total_km,
+        "total_duration_s": sum(a.duration_s for a in in_period),
+        "total_elevation_m": round(sum(a.elevation_gain_m or 0 for a in in_period), 1),
+        "avg_pace_s_per_km": _weighted_avg_pace_s_per_km(in_period),
+    }
+
+    if weekly:
+        buckets = _bucket_by_week_sun_start(in_period, start, end)
+    else:
+        buckets = _bucket_by_day(in_period, start, end, label_style)
+
+    volume = {"buckets": buckets, "total_km": total_km}
+    return summary, volume
+
+
 # ---------------------------------------------------------------------------
 # Per-activity rebuild
 # ---------------------------------------------------------------------------
