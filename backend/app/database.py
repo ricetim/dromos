@@ -61,6 +61,18 @@ def create_db_and_tables():
             "CREATE INDEX IF NOT EXISTS idx_activity_started_at "
             "ON activity(started_at DESC)"
         )
+
+        # Dedupe ActivityShoe rows (keep newest link per activity), then
+        # enforce one-link-per-activity at the DB layer. Must dedupe BEFORE
+        # creating the unique index or the CREATE will fail.
+        conn.exec_driver_sql(
+            "DELETE FROM activityshoe WHERE id NOT IN "
+            "(SELECT MAX(id) FROM activityshoe GROUP BY activity_id)"
+        )
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_activityshoe_activity_id_unique "
+            "ON activityshoe(activity_id)"
+        )
         conn.commit()
     # Seed singleton UserProfile if not present
     from app.models import UserProfile

@@ -82,7 +82,7 @@ class Shoe(SQLModel, table=True):
 
 class ActivityShoe(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", unique=True, index=True)
     shoe_id: int = Field(foreign_key="shoe.id", index=True)
 
     activity: Optional[Activity] = Relationship(back_populates="activity_shoes")

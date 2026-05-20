@@ -230,7 +230,10 @@ def _sync_strava_activities() -> None:
                 shoes_synced += 1
             session.commit()
 
-            # ── 4. Link ActivityShoe ──────────────────────────────────────
+            # ── 4. Link ActivityShoe (replace, don't append) ──────────────
+            # Each activity is linked to exactly one shoe. If Strava reports
+            # a different gear_id than what's currently linked, replace the
+            # link rather than appending — otherwise mileage double-counts.
             links_created = 0
             for gear_id, act_ids in gear_map.items():
                 shoe = session.exec(
@@ -239,14 +242,15 @@ def _sync_strava_activities() -> None:
                 if not shoe:
                     continue
                 for act_id in act_ids:
-                    already = session.exec(
-                        select(ActivityShoe)
-                        .where(ActivityShoe.activity_id == act_id)
-                        .where(ActivityShoe.shoe_id == shoe.id)
-                    ).first()
-                    if not already:
-                        session.add(ActivityShoe(activity_id=act_id, shoe_id=shoe.id))
-                        links_created += 1
+                    existing = session.exec(
+                        select(ActivityShoe).where(ActivityShoe.activity_id == act_id)
+                    ).all()
+                    if any(link.shoe_id == shoe.id for link in existing):
+                        continue  # already correctly linked
+                    for link in existing:
+                        session.delete(link)
+                    session.add(ActivityShoe(activity_id=act_id, shoe_id=shoe.id))
+                    links_created += 1
             session.commit()
 
             # ── 5. Photo sync for all activities with strava_id ───────────
