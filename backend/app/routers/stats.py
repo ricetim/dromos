@@ -30,9 +30,6 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 # Server-side TTL caches for expensive aggregate endpoints
 # ---------------------------------------------------------------------------
 
-_summary_cache: dict = {}   # keyed by period string
-_SUMMARY_TTL = 300          # 5 minutes
-
 _tload_cache: dict = {}     # keyed by days int
 _TLOAD_TTL = 300            # 5 minutes
 
@@ -42,7 +39,6 @@ _VDOT_TTL = 900             # 15 minutes
 
 def _invalidate_stats_cache() -> None:
     """Invalidate all stats caches — call after a new activity is imported."""
-    _summary_cache.clear()
     _tload_cache.clear()
     _vdot_cache["data"] = None
 
@@ -50,8 +46,6 @@ def _invalidate_stats_cache() -> None:
 def warm_cache(session: Session) -> None:
     """Pre-populate all stats caches. Called at startup."""
     try:
-        get_summary(period="week", session=session)
-        get_summary(period="month", session=session)
         get_vdot(session=session)
         get_personal_bests(session=session)
     except Exception:
@@ -91,49 +85,25 @@ def _build_tss_by_date(session: Session) -> dict[date, float]:
 
 @router.get("/summary")
 def get_summary(
-    period: str = Query("week", pattern="^(week|month|year|all)$"),
+    period: str = Query("last_7_days", pattern="^(last_7_days|month|year)$"),
     session: Session = Depends(get_session),
 ):
     """
-    Aggregate run counts, distance, duration, elevation for a time period.
-    period: 'week' | 'month' | 'year' | 'all'
+    Aggregate run counts, distance, duration, elevation for a calendar-bound period.
+
+    The dashboard reads /static/dashboard.json directly (built by
+    app.services.builder._rebuild_dashboard). This endpoint exists for
+    API consumers and re-derives from the static file for consistency.
     """
-    now = _time.monotonic()
-    cached = _summary_cache.get(period)
-    if cached and now - cached["ts"] < _SUMMARY_TTL:
-        return cached["data"]
-
-    today = date.today()
-    if period == "week":
-        since = today - timedelta(days=7)
-    elif period == "month":
-        since = today - timedelta(days=30)
-    elif period == "year":
-        since = today - timedelta(days=365)
-    else:
-        since = date(1970, 1, 1)
-
-    acts = session.exec(
-        select(Activity).where(Activity.started_at >= since.isoformat())
-    ).all()
-
-    total_km = sum(a.distance_m for a in acts) / 1000
-    total_s = sum(a.duration_s for a in acts)
-    total_elev = sum(a.elevation_gain_m for a in acts)
-    count = len(acts)
-    avg_pace = (sum(a.avg_pace_s_per_km for a in acts if a.avg_pace_s_per_km)
-                / max(1, sum(1 for a in acts if a.avg_pace_s_per_km)))
-
-    result = {
-        "period": period,
-        "count": count,
-        "total_distance_km": round(total_km, 2),
-        "total_duration_s": total_s,
-        "total_elevation_m": round(total_elev, 1),
-        "avg_pace_s_per_km": round(avg_pace, 1) if avg_pace else None,
-    }
-    _summary_cache[period] = {"data": result, "ts": now}
-    return result
+    from app.services.builder import STATIC_DIR
+    import json as _json
+    path = STATIC_DIR / "dashboard.json"
+    if not path.exists():
+        return {"period": period, "count": 0, "total_distance_km": 0.0,
+                "total_duration_s": 0, "total_elevation_m": 0.0,
+                "avg_pace_s_per_km": None}
+    data = _json.loads(path.read_text())
+    return data["summary"].get(period, {})
 
 
 @router.get("/training-load")
