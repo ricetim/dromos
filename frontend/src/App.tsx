@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, Link } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UnitsProvider, useUnits } from "./contexts/UnitsContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import { getActivities, getStatsSummary, getPersonalBests, getVdot, getMetrics } from "./api/client";
+import { getActivities, getStatsSummary, getPersonalBests, getVdot, getMetrics, getVolumeBuckets } from "./api/client";
 import ActivityList from "./pages/ActivityList";
 import Dashboard from "./pages/Dashboard";
 import Gear from "./pages/Gear";
@@ -29,8 +29,12 @@ const queryClient = new QueryClient({
 
 // Kick off prefetches immediately — data will be ready before the user navigates
 queryClient.prefetchQuery({ queryKey: ["activities"],              queryFn: getActivities,                    staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["stats-summary", "week"],  queryFn: () => getStatsSummary("week"),    staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["stats-summary", "month"], queryFn: () => getStatsSummary("month"),   staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["stats-summary", "last_7_days"], queryFn: () => getStatsSummary("last_7_days"), staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["stats-summary", "month"],       queryFn: () => getStatsSummary("month"),       staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["stats-summary", "year"],        queryFn: () => getStatsSummary("year"),        staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["volume", "last_7_days"],        queryFn: () => getVolumeBuckets("last_7_days"), staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["volume", "month"],              queryFn: () => getVolumeBuckets("month"),       staleTime: Infinity });
+queryClient.prefetchQuery({ queryKey: ["volume", "year"],               queryFn: () => getVolumeBuckets("year"),        staleTime: Infinity });
 queryClient.prefetchQuery({ queryKey: ["personal-bests"],         queryFn: getPersonalBests,                 staleTime: Infinity });
 queryClient.prefetchQuery({ queryKey: ["vdot"],                   queryFn: getVdot,                          staleTime: Infinity });
 queryClient.prefetchQuery({ queryKey: ["metrics"],               queryFn: getMetrics,                       staleTime: Infinity });
