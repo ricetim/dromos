@@ -120,11 +120,17 @@ def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
     """
     Sunday-start weekly buckets covering [start, end].
 
-    The first bucket's date is the Sunday on or before `start`.
-    The bucket's `label` is the first calendar date in [start, end] that
-    falls in that week (e.g. "Jan 1" if year starts mid-week).
-    Only activities with date in [start, end] count toward km totals.
+    First bucket's date is the Sunday on or before `start`.
+    Label is the first calendar date in [start, end] that falls in that week
+    (e.g., "Jan 1" if year starts mid-week). Only activities with date in
+    [start, end] count toward km totals.
     """
+    by_date: dict[date, float] = {}
+    for a in acts:
+        d = a.started_at.date()
+        if start <= d <= end:
+            by_date[d] = by_date.get(d, 0.0) + a.distance_m
+
     first_sun = _sunday_on_or_before(start)
     buckets = []
     cur = first_sun
@@ -133,12 +139,11 @@ def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
         clamp_lo = max(cur, start)
         clamp_hi = min(week_end, end)
         total_m = 0.0
-        for a in acts:
-            d = a.started_at.date()
-            if clamp_lo <= d <= clamp_hi:
-                total_m += a.distance_m
-        label_date = clamp_lo
-        label = f"{label_date.strftime('%b')} {label_date.day}"
+        d = clamp_lo
+        while d <= clamp_hi:
+            total_m += by_date.get(d, 0.0)
+            d += timedelta(days=1)
+        label = f"{clamp_lo.strftime('%b')} {clamp_lo.day}"
         buckets.append({
             "date": cur.isoformat(),
             "label": label,
