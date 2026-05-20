@@ -83,7 +83,8 @@ def test_rebuild_globals_writes_all_files(session, act, tmp_path):
 
     dash = json.loads((tmp_path / "dashboard.json").read_text())
     assert "summary" in dash
-    assert "week" in dash["summary"]
+    assert "last_7_days" in dash["summary"]
+    assert "volume" in dash
     assert "training_load" in dash
     assert "vdot" in dash
     assert "personal_bests" in dash
@@ -422,3 +423,33 @@ def test_compute_period_data_year_53_weeks_2026(session):
     assert volume["total_km"] == 8.0
     assert len(volume["buckets"]) == 53
     assert volume["buckets"][0]["km"] == 8.0
+
+
+def test_rebuild_globals_writes_volume_field(session, tmp_path, monkeypatch):
+    """dashboard.json must contain summary{} and volume{} for all three periods."""
+    fake_today = _date(2026, 5, 20)
+
+    import app.services.builder as builder_mod
+    monkeypatch.setattr(builder_mod, "_today_fn", lambda: fake_today)
+
+    _make_act(session, _date(2026, 5, 16), distance_m=5000.0)
+    _make_act(session, _date(2026, 5, 18), distance_m=8000.0)
+
+    rebuild_globals(session, static_dir=tmp_path)
+
+    data = json.loads((tmp_path / "dashboard.json").read_text())
+    assert set(data["summary"].keys()) == {"last_7_days", "month", "year"}
+    assert set(data["volume"].keys()) == {"last_7_days", "month", "year"}
+
+    last_7 = data["volume"]["last_7_days"]
+    assert last_7["total_km"] == 13.0
+    assert sum(b["km"] for b in last_7["buckets"]) == 13.0
+    assert data["summary"]["last_7_days"]["total_distance_km"] == last_7["total_km"]
+
+    month = data["volume"]["month"]
+    assert len(month["buckets"]) == 31
+    assert month["buckets"][20]["date"] == "2026-05-21"
+    assert month["buckets"][20]["km"] == 0.0
+
+    year = data["volume"]["year"]
+    assert len(year["buckets"]) == 53

@@ -427,11 +427,28 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
     _write_json(static_dir / "activities.json", result)
 
 
+def _today_fn() -> date:
+    """Indirection so tests can freeze 'today' via monkeypatch."""
+    return date.today()
+
+
 def _rebuild_dashboard(session: Session, static_dir: Path) -> None:
-    from app.routers.stats import get_summary, get_training_load, get_vdot, get_personal_bests
+    from app.routers.stats import get_training_load, get_vdot, get_personal_bests
+    from app.models import Activity
+
+    acts = session.exec(select(Activity)).all()
+    today = _today_fn()
+
+    summary = {}
+    volume = {}
+    for p in ("last_7_days", "month", "year"):
+        s, v = _compute_period_data(acts, p, today)
+        summary[p] = s
+        volume[p] = v
 
     _write_json(static_dir / "dashboard.json", {
-        "summary": {p: get_summary(period=p, session=session) for p in ("week", "month", "year", "all")},
+        "summary": summary,
+        "volume": volume,
         "training_load": get_training_load(days=365, session=session),
         "vdot": get_vdot(session=session),
         "personal_bests": get_personal_bests(session=session),
