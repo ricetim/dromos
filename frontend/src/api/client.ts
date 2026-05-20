@@ -20,9 +20,14 @@ export const getActivityFull = (id: number) =>
 export const getDataPoints = (id: number) =>
   _fetchJson(`/static/datapoints-${id}.json`);
 
+export type Period = "last_7_days" | "month" | "year";
+
 // Stats: all come from dashboard.json; each function extracts its slice.
-export const getStatsSummary = (period = "week") =>
+export const getStatsSummary = (period: Period = "last_7_days") =>
   _fetchJson("/static/dashboard.json").then((d) => d.summary[period]);
+
+export const getVolumeBuckets = (period: Period) =>
+  _fetchJson("/static/dashboard.json").then((d) => d.volume[period]);
 
 export const getTrainingLoad = (days = 90) =>
   _fetchJson("/static/dashboard.json").then(
