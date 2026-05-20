@@ -279,3 +279,66 @@ def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
     cums = [pt["cumulative_km"] for pt in s["timeline"]]
     assert cums == sorted(cums)
     assert cums[-1] == 10.0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Period volume bucketing
+# ──────────────────────────────────────────────────────────────────────────
+
+from datetime import date as _date, timedelta
+from app.services.builder import _bucket_by_day
+
+
+def _make_act(session, started_at_date, distance_m=5000.0):
+    """Helper: create a minimal Activity on a given date."""
+    a = Activity(
+        source="manual_upload",
+        started_at=datetime(started_at_date.year, started_at_date.month, started_at_date.day,
+                            12, 0, tzinfo=timezone.utc),
+        distance_m=distance_m,
+        duration_s=1800,
+        elevation_gain_m=10.0,
+        sport_type="run",
+    )
+    session.add(a)
+    session.commit()
+    return a
+
+
+def test_bucket_by_day_last_7_days_uses_weekday_labels(session):
+    """7-day view: 7 daily buckets labeled Sun..Sat in chronological order."""
+    today = _date(2026, 5, 20)  # Wednesday
+    start = today - timedelta(days=6)  # Thursday May 14
+    end = today
+
+    _make_act(session, _date(2026, 5, 16))  # 5km Saturday
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    buckets = _bucket_by_day(acts, start, end, label_style="weekday")
+
+    assert len(buckets) == 7
+    assert buckets[0] == {"date": "2026-05-14", "label": "Thu", "km": 0.0}
+    assert buckets[1] == {"date": "2026-05-15", "label": "Fri", "km": 0.0}
+    assert buckets[2] == {"date": "2026-05-16", "label": "Sat", "km": 5.0}
+    assert buckets[6] == {"date": "2026-05-20", "label": "Wed", "km": 0.0}
+
+
+def test_bucket_by_day_month_uses_day_of_month_labels(session):
+    """Month view: bucket labels are day-of-month strings ('1'..'31')."""
+    start = _date(2026, 5, 1)
+    end = _date(2026, 5, 31)
+
+    _make_act(session, _date(2026, 5, 10), distance_m=3000.0)
+    _make_act(session, _date(2026, 5, 10), distance_m=2000.0)
+    from sqlmodel import select
+    acts = session.exec(select(Activity)).all()
+
+    buckets = _bucket_by_day(acts, start, end, label_style="day_of_month")
+
+    assert len(buckets) == 31
+    assert buckets[0] == {"date": "2026-05-01", "label": "1", "km": 0.0}
+    assert buckets[9] == {"date": "2026-05-10", "label": "10", "km": 5.0}
+    assert buckets[30] == {"date": "2026-05-31", "label": "31", "km": 0.0}
+
+

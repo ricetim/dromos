@@ -71,6 +71,45 @@ def _tile_xy(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     return x, y
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Period volume bucketing helpers
+# ──────────────────────────────────────────────────────────────────────────
+
+_WEEKDAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _bucket_by_day(acts, start: date, end: date, label_style: str) -> list[dict]:
+    """
+    One bucket per calendar day in [start, end] inclusive.
+
+    label_style:
+      - "weekday"       — "Sun".."Sat" (used by last_7_days view)
+      - "day_of_month"  — "1".."31"    (used by month view)
+    """
+    n_days = (end - start).days + 1
+    by_date: dict[date, float] = {}
+    for a in acts:
+        d = a.started_at.date()
+        if start <= d <= end:
+            by_date[d] = by_date.get(d, 0.0) + a.distance_m
+
+    buckets = []
+    for i in range(n_days):
+        d = start + timedelta(days=i)
+        if label_style == "weekday":
+            label = _WEEKDAY_SHORT[d.weekday()]
+        elif label_style == "day_of_month":
+            label = str(d.day)
+        else:
+            raise ValueError(f"unknown label_style: {label_style}")
+        buckets.append({
+            "date": d.isoformat(),
+            "label": label,
+            "km": round(by_date.get(d, 0.0) / 1000.0, 2),
+        })
+    return buckets
+
+
 # ---------------------------------------------------------------------------
 # Per-activity rebuild
 # ---------------------------------------------------------------------------
