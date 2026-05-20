@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
-import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints } from "../api/client";
+import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints, getVolumeBuckets } from "../api/client";
+import type { Period } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateMonthDay, formatDateLong } from "../utils/dates";
@@ -284,51 +285,41 @@ function FeaturedActivity({ act }: { act: Activity }) {
   );
 }
 
-// ── last 7 days volume ────────────────────────────────────────────────────────
+// ── period-aware volume chart ────────────────────────────────────────────────
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function Last7Days({ acts }: { acts: Activity[] }) {
+function VolumeChart({ period }: { period: Period }) {
   const { system } = useUnits();
+  const { data } = useQuery({
+    queryKey: ["volume", period],
+    queryFn: () => getVolumeBuckets(period),
+    staleTime: Infinity,
+  });
+  if (!data) return null;
+
   const distUnit = system === "imperial" ? "mi" : "km";
+  const toDisplay = (km: number) =>
+    system === "imperial" ? +(km * 0.621371).toFixed(1) : +km.toFixed(1);
 
-  const { data, totalDist } = useMemo(() => {
-    const now = new Date();
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() - (6 - i));
-      return { key: d.toISOString().slice(0, 10), label: DAY_LABELS[d.getDay()], dist: 0 };
-    });
-
-    for (const act of acts) {
-      const day = days.find((d) => d.key === act.started_at.slice(0, 10));
-      if (!day) continue;
-      day.dist += act.distance_m;
-    }
-
-    const toDisplay = (m: number) => system === "imperial" ? +(m / 1609.34).toFixed(1) : +(m / 1000).toFixed(1);
-    const rows = days.map((d) => ({ label: d.label, dist: toDisplay(d.dist) }));
-    const totalDist = toDisplay(days.reduce((s, d) => s + d.dist, 0));
-    return { data: rows, totalDist };
-  }, [acts, system]);
-
-  if (!data.some((d) => d.dist > 0)) return null;
+  const rows = data.buckets.map((b: { label: string; km: number }) => ({
+    label: b.label,
+    dist: toDisplay(b.km),
+  }));
+  const total = toDisplay(data.total_km);
+  const gap = period === "year" ? "8%" : period === "month" ? "12%" : "25%";
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-700">Last 7 Days</h2>
-        <span className="text-sm font-bold text-gray-800">{totalDist} {distUnit}</span>
+        <h2 className="text-sm font-semibold text-gray-700">{PERIOD_LABELS[period]}</h2>
+        <span className="text-sm font-bold text-gray-800">{total} {distUnit}</span>
       </div>
-      <ResponsiveContainer width="100%" height={110}>
-        <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
+      <ResponsiveContainer width="100%" height={140}>
+        <BarChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap={gap}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
           <YAxis tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
-          <Tooltip
-            contentStyle={{ fontSize: 12 }}
-            formatter={(v: number) => [`${v} ${distUnit}`, "Distance"]}
-          />
+          <Tooltip contentStyle={{ fontSize: 12 }}
+                   formatter={(v: number) => [`${v} ${distUnit}`, "Distance"]} />
           <Bar dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -338,11 +329,16 @@ function Last7Days({ acts }: { acts: Activity[] }) {
 
 // ── main Dashboard ────────────────────────────────────────────────────────────
 
-const PERIODS = ["week", "month", "year", "all"] as const;
-type Period = (typeof PERIODS)[number];
+const PERIODS = ["last_7_days", "month", "year"] as const;
+
+const PERIOD_LABELS: Record<Period, string> = {
+  last_7_days: "Last 7 days",
+  month: "Month",
+  year: "Year",
+};
 
 export default function Dashboard() {
-  const [period, setPeriod] = useState<Period>("week");
+  const [period, setPeriod] = useState<Period>("last_7_days");
   const { fmtDist, fmtPace, fmtElev } = useUnits();
 
   const { data: summary } = useQuery({
@@ -379,7 +375,7 @@ export default function Dashboard() {
                 : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
             }`}
           >
-            {p.charAt(0).toUpperCase() + p.slice(1)}
+            {PERIOD_LABELS[p]}
           </button>
         ))}
       </div>
@@ -396,8 +392,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Last 7 days volume + TRIMP */}
-      <Last7Days acts={allActs} />
+      {/* Period-aware volume chart */}
+      <VolumeChart period={period} />
 
       {/* Most recent activity — large card */}
       {latestAct && (
