@@ -149,6 +149,7 @@ def _sync_strava_activities() -> None:
                 )
                 session.add(act)
                 session.flush()
+                stamp_default_shoe(session, act.id)
 
                 for dp in dps:
                     session.add(DataPoint(activity_id=act.id, **dp))

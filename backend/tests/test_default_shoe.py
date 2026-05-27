@@ -252,3 +252,40 @@ def test_sync_coros_stamps_default_shoe(session, tmp_path):
     ).all()
     assert len(links) == 1
     assert links[0].shoe_id == shoe.id
+
+
+def test_strava_streams_import_stamps_default_shoe(session, tmp_path):
+    """When _sync_strava_activities imports an unmatched Strava activity, default is stamped."""
+    from app.routers import sync as sync_mod
+
+    shoe = _seed_default_shoe(session)
+
+    fake_strava_act = {
+        "id": 12345,
+        "start_date": "2026-05-27T07:00:00Z",
+        "sport_type": "Run",
+        "distance": 5000,
+        "moving_time": 1500,
+        "total_elevation_gain": 10,
+        "name": "Test Strava Run",
+    }
+
+    with mock_patch.object(sync_mod, "get_access_token", return_value="tok"), \
+         mock_patch.object(sync_mod, "fetch_athlete_activities", return_value=[fake_strava_act]), \
+         mock_patch.object(sync_mod, "fetch_activity_streams", return_value={}), \
+         mock_patch.object(sync_mod, "streams_to_datapoints", return_value=[]), \
+         mock_patch.object(sync_mod, "fetch_activity_laps", return_value=[]), \
+         mock_patch.object(sync_mod, "sync_photos_for_activity", return_value=0), \
+         mock_patch.object(sync_mod, "fetch_weather", return_value=None), \
+         mock_patch.object(sync_mod, "bg_rebuild_all", return_value=None), \
+         mock_patch.object(sync_mod, "engine", session.bind), \
+         mock_patch.object(sync_mod, "STRAVA_REFRESH_TOKEN", "rtok"):
+        sync_mod._sync_strava_activities()
+
+    acts = session.exec(select(Activity).where(Activity.strava_id == "12345")).all()
+    assert len(acts) == 1
+    links = session.exec(
+        select(ActivityShoe).where(ActivityShoe.activity_id == acts[0].id)
+    ).all()
+    assert len(links) == 1
+    assert links[0].shoe_id == shoe.id
