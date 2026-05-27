@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.database import get_session
-from app.models import UserProfile
+from app.models import Shoe, UserProfile
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
+
+ALLOWED_FIELDS = {"hr_max", "hr_rest", "weight_kg", "default_shoe_id"}
 
 
 @router.get("")
@@ -19,9 +21,20 @@ def update_profile(data: dict, session: Session = Depends(get_session)):
     if not profile:
         profile = UserProfile(id=1)
         session.add(profile)
-    for key in {"hr_max", "hr_rest", "weight_kg"}:
+
+    if "default_shoe_id" in data:
+        new_id = data["default_shoe_id"]
+        if new_id is not None:
+            shoe = session.get(Shoe, new_id)
+            if not shoe:
+                raise HTTPException(status_code=400, detail="Shoe not found")
+            if shoe.retired:
+                raise HTTPException(status_code=400, detail="Cannot set retired shoe as default")
+
+    for key in ALLOWED_FIELDS:
         if key in data:
             setattr(profile, key, data[key])
+
     session.add(profile)
     session.commit()
     session.refresh(profile)

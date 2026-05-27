@@ -70,3 +70,46 @@ def test_stamp_default_shoe_writes_link(session: Session):
     ).all()
     assert len(links) == 1
     assert links[0].shoe_id == shoe.id
+
+
+def test_patch_profile_sets_default_shoe(client, session):
+    """PATCH /api/profile {default_shoe_id: N} updates the profile."""
+    shoe = Shoe(name="Tracer")
+    session.add(shoe)
+    session.add(UserProfile(id=1))
+    session.commit()
+    session.refresh(shoe)
+
+    r = client.patch("/api/profile", json={"default_shoe_id": shoe.id})
+    assert r.status_code == 200
+    assert r.json()["default_shoe_id"] == shoe.id
+
+
+def test_patch_profile_clears_default_shoe(client, session):
+    """PATCH /api/profile {default_shoe_id: null} clears the default."""
+    shoe = Shoe(name="Tracer")
+    session.add(shoe)
+    session.flush()
+    session.add(UserProfile(id=1, default_shoe_id=shoe.id))
+    session.commit()
+
+    r = client.patch("/api/profile", json={"default_shoe_id": None})
+    assert r.status_code == 200
+    assert r.json()["default_shoe_id"] is None
+
+
+def test_patch_profile_rejects_missing_shoe(client, session):
+    session.add(UserProfile(id=1))
+    session.commit()
+    r = client.patch("/api/profile", json={"default_shoe_id": 9999})
+    assert r.status_code == 400
+
+
+def test_patch_profile_rejects_retired_shoe(client, session):
+    shoe = Shoe(name="Old", retired=True)
+    session.add(shoe)
+    session.add(UserProfile(id=1))
+    session.commit()
+    session.refresh(shoe)
+    r = client.patch("/api/profile", json={"default_shoe_id": shoe.id})
+    assert r.status_code == 400
