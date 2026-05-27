@@ -95,6 +95,7 @@ class UserProfile(SQLModel, table=True):
     hr_max: int = 185          # maximum heart rate (bpm)
     hr_rest: int = 50          # resting heart rate (bpm)
     weight_kg: Optional[float] = None
+    default_shoe_id: Optional[int] = Field(default=None, foreign_key="shoe.id")
 
 
 class Lap(SQLModel, table=True):

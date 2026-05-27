@@ -43,6 +43,7 @@ def create_db_and_tables():
         _add_column(conn, "activity", "weather_wind_kph", "REAL")
         _add_column(conn, "activity", "weather_condition", "TEXT")
         _add_column(conn, "activity", "weather_is_daytime", "INTEGER")
+        _add_column(conn, "userprofile", "default_shoe_id", "INTEGER")
 
         # Back-fill avg_pace_s_per_km using correct formula: duration_s / (distance_m / 1000)
         # The old formula (mean of 1000/speed per datapoint) over-weighted slow segments.
