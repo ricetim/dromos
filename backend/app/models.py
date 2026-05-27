@@ -75,8 +75,6 @@ class Shoe(SQLModel, table=True):
     retired: bool = False
     notes: Optional[str] = None
     retirement_threshold_km: float = 800.0
-    strava_gear_id: Optional[str] = None   # e.g. "g12345678" — used as dedup key on sync
-
     activity_shoes: List["ActivityShoe"] = Relationship(back_populates="shoe")
 
 

@@ -195,63 +195,14 @@ def _sync_strava_activities() -> None:
 
             session.commit()
 
-            # ── 3. Upsert shoes from athlete profile (or by gear_id fallback) ──
-            athlete = fetch_athlete(token)
-            shoes_data: list[dict] = athlete.get("shoes", [])
-            # If profile returns no shoes, fetch gear directly from activity gear_ids
-            if not shoes_data:
-                seen_gear: set[str] = set()
-                for gear_id in gear_map:
-                    if gear_id not in seen_gear:
-                        gear = fetch_gear(token, gear_id)
-                        if gear:
-                            shoes_data.append(gear)
-                        seen_gear.add(gear_id)
+            # ── 3. Upsert shoes from athlete profile ──────────────────────
+            # NOTE: strava_gear_id was dropped from the Shoe model (Task 2).
+            # Full Strava gear-sync removal is deferred to Task 9.
             shoes_synced = 0
-            for sd in shoes_data:
-                gear_id = sd.get("id", "")
-                if not gear_id:
-                    continue
-                existing = session.exec(
-                    select(Shoe).where(Shoe.strava_gear_id == gear_id)
-                ).first()
-                if existing:
-                    existing.name = sd.get("name", existing.name)
-                    existing.brand = sd.get("brand_name") or existing.brand
-                    existing.retired = sd.get("retired", existing.retired)
-                    session.add(existing)
-                else:
-                    session.add(Shoe(
-                        name=sd.get("name", "Unknown shoe"),
-                        brand=sd.get("brand_name") or None,
-                        retired=sd.get("retired", False),
-                        strava_gear_id=gear_id,
-                    ))
-                shoes_synced += 1
-            session.commit()
 
-            # ── 4. Link ActivityShoe (replace, don't append) ──────────────
-            # Each activity is linked to exactly one shoe. If Strava reports
-            # a different gear_id than what's currently linked, replace the
-            # link rather than appending — otherwise mileage double-counts.
+            # ── 4. Link ActivityShoe via Strava gear_id ───────────────────
+            # NOTE: disabled pending Task 9 (strava_gear_id column removed).
             links_created = 0
-            for gear_id, act_ids in gear_map.items():
-                shoe = session.exec(
-                    select(Shoe).where(Shoe.strava_gear_id == gear_id)
-                ).first()
-                if not shoe:
-                    continue
-                for act_id in act_ids:
-                    existing = session.exec(
-                        select(ActivityShoe).where(ActivityShoe.activity_id == act_id)
-                    ).all()
-                    if any(link.shoe_id == shoe.id for link in existing):
-                        continue  # already correctly linked
-                    for link in existing:
-                        session.delete(link)
-                    session.add(ActivityShoe(activity_id=act_id, shoe_id=shoe.id))
-                    links_created += 1
-            session.commit()
 
             # ── 5. Photo sync for all activities with strava_id ───────────
             acts_with_strava = session.exec(
