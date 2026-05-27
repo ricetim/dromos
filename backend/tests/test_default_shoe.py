@@ -202,3 +202,53 @@ def test_upload_without_default_creates_no_link(client, session):
         select(ActivityShoe).where(ActivityShoe.activity_id == act_id)
     ).all()
     assert links == []
+
+
+from unittest.mock import patch as mock_patch
+
+
+def test_sync_coros_stamps_default_shoe(session, tmp_path):
+    """When _sync_coros ingests a new activity, the default shoe is stamped."""
+    from app.routers import sync as sync_mod
+    from app.services.fit_parser import FitParseResult
+
+    shoe = _seed_default_shoe(session)
+
+    fake_meta = [{
+        "labelId": "test-ext-1",
+        "sportType": "100",
+        "name": "Test Run",
+    }]
+    fake_parse = FitParseResult(
+        started_at=datetime(2026, 5, 27, 7, 0, 0),
+        distance_m=5000,
+        duration_s=1500,
+        elevation_gain_m=10,
+        elevation_loss_m=10,
+        avg_hr=140,
+        sport_type="run",
+        datapoints=[],
+        laps=[],
+    )
+    fake_detail = {"notes": None, "rpe": None}
+
+    with mock_patch.object(sync_mod, "coros_login", return_value=("tok", "uid")), \
+         mock_patch.object(sync_mod, "coros_list", return_value=fake_meta), \
+         mock_patch.object(sync_mod, "download_fit", return_value=b"\x00\x00"), \
+         mock_patch.object(sync_mod, "get_activity_detail", return_value=fake_detail), \
+         mock_patch.object(sync_mod, "parse_fit_file", return_value=fake_parse), \
+         mock_patch.object(sync_mod, "fetch_weather", return_value=None), \
+         mock_patch.object(sync_mod, "bg_rebuild_all", return_value=None), \
+         mock_patch.object(sync_mod, "engine", session.bind), \
+         mock_patch.object(sync_mod, "DATA_DIR", tmp_path), \
+         mock_patch.object(sync_mod, "COROS_EMAIL", "test@example.com"), \
+         mock_patch.object(sync_mod, "COROS_PASSWORD", "pw"):
+        sync_mod._sync_coros()
+
+    acts = session.exec(select(Activity)).all()
+    assert len(acts) == 1
+    links = session.exec(
+        select(ActivityShoe).where(ActivityShoe.activity_id == acts[0].id)
+    ).all()
+    assert len(links) == 1
+    assert links[0].shoe_id == shoe.id

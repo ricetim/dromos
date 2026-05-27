@@ -12,6 +12,7 @@ from app.services.fit_parser import parse_fit_file
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR, STRAVA_REFRESH_TOKEN
 from app.services.builder import bg_rebuild_all
 from app.services.weather import fetch_weather
+from app.services.shoe_default import stamp_default_shoe
 from datetime import datetime, timezone
 import threading
 import uuid
@@ -271,6 +272,7 @@ def _sync_coros() -> None:
                 )
                 session.add(act)
                 session.flush()
+                stamp_default_shoe(session, act.id)
                 for dp in result.datapoints:
                     session.add(DataPoint(activity_id=act.id, **dp))
                 for lap in result.laps:
