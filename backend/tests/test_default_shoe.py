@@ -1,7 +1,12 @@
+import pathlib
+import pytest
 from sqlmodel import Session, select
 from app.models import UserProfile, Shoe, ActivityShoe, Activity
 from app.services.shoe_default import stamp_default_shoe
 from datetime import datetime
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+SAMPLE_FIT = FIXTURES / "sample.fit"
 
 
 def test_userprofile_has_default_shoe_id_field(session: Session):
@@ -149,3 +154,51 @@ def test_retiring_non_default_shoe_does_not_touch_profile(client, session):
     profile = session.get(UserProfile, 1)
     session.refresh(profile)
     assert profile.default_shoe_id == a.id
+
+
+def _seed_default_shoe(session) -> Shoe:
+    shoe = Shoe(name="DefaultTest")
+    session.add(shoe)
+    session.flush()
+    session.add(UserProfile(id=1, default_shoe_id=shoe.id))
+    session.commit()
+    session.refresh(shoe)
+    return shoe
+
+
+@pytest.mark.skipif(not SAMPLE_FIT.exists(), reason="sample.fit fixture required")
+def test_upload_stamps_default_shoe(client, session):
+    shoe = _seed_default_shoe(session)
+
+    with SAMPLE_FIT.open("rb") as f:
+        r = client.post(
+            "/api/activities/upload",
+            files={"file": ("sample.fit", f, "application/octet-stream")},
+        )
+    assert r.status_code == 201
+    act_id = r.json()["id"]
+
+    links = session.exec(
+        select(ActivityShoe).where(ActivityShoe.activity_id == act_id)
+    ).all()
+    assert len(links) == 1
+    assert links[0].shoe_id == shoe.id
+
+
+@pytest.mark.skipif(not SAMPLE_FIT.exists(), reason="sample.fit fixture required")
+def test_upload_without_default_creates_no_link(client, session):
+    session.add(UserProfile(id=1, default_shoe_id=None))
+    session.commit()
+
+    with SAMPLE_FIT.open("rb") as f:
+        r = client.post(
+            "/api/activities/upload",
+            files={"file": ("sample.fit", f, "application/octet-stream")},
+        )
+    assert r.status_code == 201
+    act_id = r.json()["id"]
+
+    links = session.exec(
+        select(ActivityShoe).where(ActivityShoe.activity_id == act_id)
+    ).all()
+    assert links == []
