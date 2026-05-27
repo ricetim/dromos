@@ -471,9 +471,11 @@ def _rebuild_goals(session: Session, static_dir: Path) -> None:
 
 
 def _rebuild_shoes(session: Session, static_dir: Path) -> None:
-    from app.models import Activity, ActivityShoe, Shoe
+    from app.models import Activity, ActivityShoe, Shoe, UserProfile
 
     shoes = session.exec(select(Shoe)).all()
+    profile = session.get(UserProfile, 1)
+    default_id = profile.default_shoe_id if profile else None
 
     rows = session.exec(
         select(ActivityShoe.shoe_id, Activity.started_at, Activity.distance_m, Activity.id)
@@ -502,6 +504,7 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
             "activity_ids": sorted(act_ids.get(shoe.id, []), reverse=True),
             "timeline": timelines.get(shoe.id, []),
             "years": sorted(years.get(shoe.id, [])),
+            "is_default": shoe.id == default_id,
         })
     _write_json(static_dir / "shoes.json", result)
 

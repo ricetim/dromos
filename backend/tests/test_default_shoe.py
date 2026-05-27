@@ -291,6 +291,42 @@ def test_strava_streams_import_stamps_default_shoe(session, tmp_path):
     assert links[0].shoe_id == shoe.id
 
 
+import json
+
+
+def test_rebuild_shoes_emits_is_default(session, tmp_path):
+    from app.services.builder import _rebuild_shoes
+
+    a = Shoe(name="A")
+    b = Shoe(name="B")
+    session.add(a)
+    session.add(b)
+    session.flush()
+    session.add(UserProfile(id=1, default_shoe_id=a.id))
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+
+    data = json.loads((tmp_path / "shoes.json").read_text())
+    by_name = {s["name"]: s for s in data}
+    assert by_name["A"]["is_default"] is True
+    assert by_name["B"]["is_default"] is False
+
+
+def test_rebuild_shoes_no_default(session, tmp_path):
+    from app.services.builder import _rebuild_shoes
+
+    a = Shoe(name="A")
+    session.add(a)
+    session.add(UserProfile(id=1, default_shoe_id=None))
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+
+    data = json.loads((tmp_path / "shoes.json").read_text())
+    assert all(s["is_default"] is False for s in data)
+
+
 def test_strava_sync_does_not_touch_existing_shoes(session, tmp_path):
     """After removal of shoe sync, _sync_strava_activities leaves Shoe/ActivityShoe untouched."""
     from app.routers import sync as sync_mod
