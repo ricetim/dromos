@@ -40,6 +40,13 @@ def update_shoe(shoe_id: int, data: dict, background_tasks: BackgroundTasks, ses
     for k in {"name", "brand", "retired", "notes", "retirement_threshold_km"}:
         if k in data:
             setattr(shoe, k, data[k])
+    # If this shoe just became retired and is the current default, clear the default.
+    if shoe.retired:
+        from app.models import UserProfile
+        profile = session.get(UserProfile, 1)
+        if profile and profile.default_shoe_id == shoe.id:
+            profile.default_shoe_id = None
+            session.add(profile)
     session.add(shoe)
     session.commit()
     session.refresh(shoe)

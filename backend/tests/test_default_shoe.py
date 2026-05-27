@@ -113,3 +113,39 @@ def test_patch_profile_rejects_retired_shoe(client, session):
     session.refresh(shoe)
     r = client.patch("/api/profile", json={"default_shoe_id": shoe.id})
     assert r.status_code == 400
+
+
+def test_retiring_default_shoe_clears_profile(client, session):
+    """PATCH /api/shoes/{id} retired=True clears UserProfile.default_shoe_id."""
+    shoe = Shoe(name="Speed")
+    session.add(shoe)
+    session.flush()
+    session.add(UserProfile(id=1, default_shoe_id=shoe.id))
+    session.commit()
+    session.refresh(shoe)
+
+    r = client.patch(f"/api/shoes/{shoe.id}", json={"retired": True})
+    assert r.status_code == 200
+
+    profile = session.get(UserProfile, 1)
+    session.refresh(profile)
+    assert profile.default_shoe_id is None
+
+
+def test_retiring_non_default_shoe_does_not_touch_profile(client, session):
+    a = Shoe(name="A")
+    b = Shoe(name="B")
+    session.add(a)
+    session.add(b)
+    session.flush()
+    session.add(UserProfile(id=1, default_shoe_id=a.id))
+    session.commit()
+    session.refresh(a)
+    session.refresh(b)
+
+    r = client.patch(f"/api/shoes/{b.id}", json={"retired": True})
+    assert r.status_code == 200
+
+    profile = session.get(UserProfile, 1)
+    session.refresh(profile)
+    assert profile.default_shoe_id == a.id
