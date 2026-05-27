@@ -1,9 +1,9 @@
 from fastapi import APIRouter, BackgroundTasks
 from sqlmodel import Session, select
 from app.database import engine
-from app.models import Activity, ActivityShoe, DataPoint, Lap, Shoe
+from app.models import Activity, DataPoint, Lap
 from app.services.strava import (
-    get_access_token, fetch_athlete, fetch_athlete_activities, fetch_gear, sync_photos_for_activity,
+    get_access_token, fetch_athlete_activities, sync_photos_for_activity,
     fetch_activity_streams, streams_to_datapoints, fetch_activity_laps,
 )
 from app.services.coros import login as coros_login, list_activities as coros_list
@@ -48,9 +48,8 @@ def _sync_strava_activities() -> None:
     Full Strava sync:
       1. Fetch all athlete activities and match to local activities by start time (±60 s).
       2. Write strava_id on each matched local activity.
-      3. Fetch athlete profile → upsert shoes by strava_gear_id.
-      4. Link ActivityShoe for every activity that has a Strava gear_id.
-      5. Sync photos for all activities that now have a strava_id.
+      3. Import any unmatched Strava run activities via stream API (+ default-shoe stamp).
+      4. Sync photos for all activities that now have a strava_id.
     """
     global _last_sync
     if not STRAVA_REFRESH_TOKEN:
@@ -72,8 +71,6 @@ def _sync_strava_activities() -> None:
             # ── 2. Match local activities → strava_id ────────────────────
             local_acts = session.exec(select(Activity)).all()
             matched_count = 0
-            # strava_gear_id → list of local activity IDs that used that gear
-            gear_map: dict[str, list[int]] = {}
 
             for act in local_acts:
                 local_ts = int(
@@ -93,9 +90,6 @@ def _sync_strava_activities() -> None:
                     act.strava_id = strava_id
                     session.add(act)
                     matched_count += 1
-                gear_id = matched.get("gear_id") or ""
-                if gear_id and act.id:
-                    gear_map.setdefault(gear_id, []).append(act.id)
 
             session.commit()
 
@@ -179,11 +173,6 @@ def _sync_strava_activities() -> None:
                 except Exception:
                     pass  # laps are best-effort
 
-                # Add to gear_map if this activity has a gear_id
-                gear_id = sa.get("gear_id") or ""
-                if gear_id and act.id:
-                    gear_map.setdefault(gear_id, []).append(act.id)
-
                 # Fetch weather
                 first_gps = next((dp for dp in dps if dp.get("lat") and dp.get("lon")), None)
                 if first_gps:
@@ -197,16 +186,7 @@ def _sync_strava_activities() -> None:
 
             session.commit()
 
-            # ── 3. Upsert shoes from athlete profile ──────────────────────
-            # NOTE: strava_gear_id was dropped from the Shoe model (Task 2).
-            # Full Strava gear-sync removal is deferred to Task 9.
-            shoes_synced = 0
-
-            # ── 4. Link ActivityShoe via Strava gear_id ───────────────────
-            # NOTE: disabled pending Task 9 (strava_gear_id column removed).
-            links_created = 0
-
-            # ── 5. Photo sync for all activities with strava_id ───────────
+            # ── 3. Photo sync for all activities with strava_id ───────────
             acts_with_strava = session.exec(
                 select(Activity).where(Activity.strava_id.is_not(None))
             ).all()
@@ -219,8 +199,6 @@ def _sync_strava_activities() -> None:
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "matched_activities": matched_count,
                 "strava_activities_imported": streams_imported,
-                "shoes_synced": shoes_synced,
-                "shoe_links_created": links_created,
                 "new_photos": new_photos,
                 "error": None,
             }

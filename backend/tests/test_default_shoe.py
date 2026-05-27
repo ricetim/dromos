@@ -289,3 +289,38 @@ def test_strava_streams_import_stamps_default_shoe(session, tmp_path):
     ).all()
     assert len(links) == 1
     assert links[0].shoe_id == shoe.id
+
+
+def test_strava_sync_does_not_touch_existing_shoes(session, tmp_path):
+    """After removal of shoe sync, _sync_strava_activities leaves Shoe/ActivityShoe untouched."""
+    from app.routers import sync as sync_mod
+
+    # Seed an existing shoe + link manually
+    shoe = Shoe(name="Pre-existing")
+    session.add(shoe)
+    session.flush()
+    act = Activity(
+        source="manual_upload",
+        started_at=datetime(2026, 5, 26, 7, 0, 0),
+        distance_m=5000, duration_s=1500, elevation_gain_m=10,
+        sport_type="run",
+    )
+    session.add(act)
+    session.flush()
+    session.add(ActivityShoe(activity_id=act.id, shoe_id=shoe.id))
+    session.commit()
+    initial_shoe_count = len(session.exec(select(Shoe)).all())
+    initial_link_count = len(session.exec(select(ActivityShoe)).all())
+
+    with mock_patch.object(sync_mod, "get_access_token", return_value="tok"), \
+         mock_patch.object(sync_mod, "fetch_athlete_activities", return_value=[]), \
+         mock_patch.object(sync_mod, "sync_photos_for_activity", return_value=0), \
+         mock_patch.object(sync_mod, "bg_rebuild_all", return_value=None), \
+         mock_patch.object(sync_mod, "engine", session.bind), \
+         mock_patch.object(sync_mod, "STRAVA_REFRESH_TOKEN", "rtok"):
+        sync_mod._sync_strava_activities()
+
+    assert len(session.exec(select(Shoe)).all()) == initial_shoe_count
+    assert len(session.exec(select(ActivityShoe)).all()) == initial_link_count
+    assert "shoes_synced" not in sync_mod._last_sync
+    assert "shoe_links_created" not in sync_mod._last_sync
