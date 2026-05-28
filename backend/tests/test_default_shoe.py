@@ -360,3 +360,33 @@ def test_strava_sync_does_not_touch_existing_shoes(session, tmp_path):
     assert len(session.exec(select(ActivityShoe)).all()) == initial_link_count
     assert "shoes_synced" not in sync_mod._last_sync
     assert "shoe_links_created" not in sync_mod._last_sync
+
+
+def test_patch_profile_triggers_shoes_json_rebuild(client, session):
+    """Changing default_shoe_id must schedule bg_rebuild_globals so the
+    static shoes.json reflects the new is_default values."""
+    from app.routers import profile as profile_mod
+
+    shoe = Shoe(name="Pace")
+    session.add(shoe)
+    session.add(UserProfile(id=1))
+    session.commit()
+    session.refresh(shoe)
+
+    with mock_patch.object(profile_mod, "bg_rebuild_globals") as bg:
+        r = client.patch("/api/profile", json={"default_shoe_id": shoe.id})
+        assert r.status_code == 200
+        bg.assert_called_once()
+
+
+def test_patch_profile_skips_rebuild_when_default_unchanged(client, session):
+    """Editing only hr_max etc. must NOT trigger a shoes.json rebuild."""
+    from app.routers import profile as profile_mod
+
+    session.add(UserProfile(id=1))
+    session.commit()
+
+    with mock_patch.object(profile_mod, "bg_rebuild_globals") as bg:
+        r = client.patch("/api/profile", json={"hr_max": 190})
+        assert r.status_code == 200
+        bg.assert_not_called()
