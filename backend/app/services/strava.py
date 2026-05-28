@@ -24,12 +24,6 @@ def _check(r: httpx.Response) -> httpx.Response:
     return r
 
 
-def fetch_athlete(access_token: str) -> dict:
-    """Return the authenticated athlete's profile (includes the 'shoes' array)."""
-    r = httpx.get(f"{_API}/athlete", headers={"Authorization": f"Bearer {access_token}"})
-    return _check(r).json()
-
-
 def fetch_athlete_activities(access_token: str, after: int = 0) -> list[dict]:
     """
     Paginate through all athlete activities since `after` (unix timestamp).
@@ -52,19 +46,6 @@ def fetch_athlete_activities(access_token: str, after: int = 0) -> list[dict]:
                 break
             page += 1
     return results
-
-
-def fetch_gear(access_token: str, gear_id: str) -> dict | None:
-    """Fetch a single gear item by Strava gear_id (e.g. 'g27724348')."""
-    try:
-        r = httpx.get(
-            f"{_API}/gear/{gear_id}",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        _check(r)
-        return r.json()
-    except Exception:
-        return None
 
 
 _STREAM_KEYS = "time,latlng,altitude,heartrate,cadence,velocity_smooth,distance"

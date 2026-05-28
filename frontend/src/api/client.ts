@@ -83,6 +83,9 @@ export const updateShoe = (id: number, data: object) =>
 export const updateActivityShoe = (activityId: number, shoeId: number | null) =>
   api.patch(`/activities/${activityId}/shoe`, { shoe_id: shoeId }).then((r) => r.data);
 
+export const setDefaultShoe = (shoeId: number | null) =>
+  api.patch("/profile", { default_shoe_id: shoeId }).then((r) => r.data);
+
 export const getProfile = () => api.get("/profile").then((r) => r.data);
 
 export const getSyncStatus = () =>

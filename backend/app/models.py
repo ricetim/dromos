@@ -75,8 +75,6 @@ class Shoe(SQLModel, table=True):
     retired: bool = False
     notes: Optional[str] = None
     retirement_threshold_km: float = 800.0
-    strava_gear_id: Optional[str] = None   # e.g. "g12345678" — used as dedup key on sync
-
     activity_shoes: List["ActivityShoe"] = Relationship(back_populates="shoe")
 
 
@@ -95,6 +93,7 @@ class UserProfile(SQLModel, table=True):
     hr_max: int = 185          # maximum heart rate (bpm)
     hr_rest: int = 50          # resting heart rate (bpm)
     weight_kg: Optional[float] = None
+    default_shoe_id: Optional[int] = Field(default=None, foreign_key="shoe.id")
 
 
 class Lap(SQLModel, table=True):

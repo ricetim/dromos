@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
-import { getShoes, createShoe, updateShoe } from "../api/client";
+import { getShoes, createShoe, updateShoe, setDefaultShoe } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 import { SHOE_RETIREMENT_MI, SHOE_RETIREMENT_KM, CHART_COLORS } from "../config";
 import { formatDateShort, formatDateMonthDay } from "../utils/dates";
@@ -19,6 +19,7 @@ interface Shoe {
   name: string;
   brand: string | null;
   retired: boolean;
+  is_default: boolean;
   notes: string | null;
   retirement_threshold_km: number;
   total_distance_km: number;
@@ -211,6 +212,11 @@ export default function Gear() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
   });
 
+  const defaultMutation = useMutation({
+    mutationFn: (shoeId: number | null) => setDefaultShoe(shoeId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
+  });
+
   const active = shoes.filter((s) => !s.retired);
   const retired = shoes.filter((s) => s.retired);
 
@@ -308,6 +314,18 @@ export default function Gear() {
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-100">
           {active.map((shoe) => (
             <div key={shoe.id} className="flex items-center p-4 hover:bg-gray-50 transition-colors">
+              <button
+                onClick={() =>
+                  defaultMutation.mutate(shoe.is_default ? null : shoe.id)
+                }
+                aria-label={shoe.is_default ? "Default shoe" : "Set as default"}
+                className={`mr-3 text-xl leading-none transition-colors ${
+                  shoe.is_default ? "text-yellow-500" : "text-gray-300 hover:text-yellow-400"
+                }`}
+                disabled={defaultMutation.isPending}
+              >
+                {shoe.is_default ? "★" : "☆"}
+              </button>
               <Link
                 to={`/activities?shoe=${shoe.id}`}
                 className="flex-1 min-w-0"

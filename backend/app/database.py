@@ -35,7 +35,6 @@ def create_db_and_tables():
         _add_column(conn, "activity", "rpe", "INTEGER")
         _add_column(conn, "activity", "name", "TEXT")
         _add_column(conn, "activity", "elevation_loss_m", "REAL")
-        _add_column(conn, "shoe", "strava_gear_id", "TEXT")
         _add_column(conn, "activity", "weather_temp_c", "REAL")
         _add_column(conn, "activity", "weather_feels_like_c", "REAL")
         _add_column(conn, "activity", "weather_precip_mm", "REAL")
@@ -43,6 +42,13 @@ def create_db_and_tables():
         _add_column(conn, "activity", "weather_wind_kph", "REAL")
         _add_column(conn, "activity", "weather_condition", "TEXT")
         _add_column(conn, "activity", "weather_is_daytime", "INTEGER")
+        _add_column(conn, "userprofile", "default_shoe_id", "INTEGER")
+        # Drop vestigial Strava gear id; SQLite 3.35+ supports DROP COLUMN.
+        # Wrapped in try/except for idempotency on already-migrated DBs.
+        try:
+            conn.exec_driver_sql("ALTER TABLE shoe DROP COLUMN strava_gear_id")
+        except Exception:
+            pass
 
         # Back-fill avg_pace_s_per_km using correct formula: duration_s / (distance_m / 1000)
         # The old formula (mean of 1000/speed per datapoint) over-weighted slow segments.

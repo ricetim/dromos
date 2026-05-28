@@ -18,6 +18,7 @@ from app.services.fit_parser import parse_fit_file
 from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals, _rebuild_shoes, STATIC_DIR
 from app.services.weather import fetch_weather
 from app.services.coros import login as coros_login, list_activities as coros_list, get_activity_detail
+from app.services.shoe_default import stamp_default_shoe
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
@@ -228,6 +229,7 @@ def upload_fit(
     )
     session.add(act)
     session.flush()
+    stamp_default_shoe(session, act.id)
 
     for dp in result.datapoints:
         session.add(DataPoint(activity_id=act.id, **dp))
