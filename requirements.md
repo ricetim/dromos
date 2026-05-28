@@ -62,8 +62,8 @@ Implementation plan when ready:
 
 ## Feature backlog (from codebase audit 2026-03-06)
 Priority order (most impactful first):
-1. Strava shoe auto-import (see above)
-2. Weekly volume bar chart on Dashboard — 12-week mileage history
+1. ~~Strava shoe auto-import~~ — removed 2026-05-27, replaced by in-app default shoe (see `docs/superpowers/specs/2026-05-27-default-shoe-design.md`)
+2. ~~Weekly volume bar chart on Dashboard~~ — done (period-aware VolumeChart, 2026-05-20)
 3. Heart rate zone breakdown per activity — time-in-zone chart
 4. Grade-adjusted pace (GAP) on activity detail — formula already in design.md
 5. Gradient-colored GPS track — polyline colored by pace or HR (design mentions, not yet implemented)
@@ -72,6 +72,14 @@ Priority order (most impactful first):
 8. Export activity as GPX
 9. Training load forecast — project CTL/ATL forward based on planned workouts
 10. Multi-activity comparison — overlay two runs on same chart/map
+
+## 2026-05-27
+
+### Default shoe (and removal of Strava shoe sync)
+- Removed the entire Strava-gear sync path: sections 3 & 4 of `_sync_strava_activities`, the `Shoe.strava_gear_id` column, the `fetch_athlete`/`fetch_gear` helpers, the `shoes_synced`/`shoe_links_created` keys in `_last_sync`.
+- New behavior: pick a default shoe on the Gear page (star icon). Stamped onto every newly-ingested activity from any source (Coros sync, Strava-streams import, manual `.fit` upload). Per-activity override still available via the existing UI. Retiring the default auto-clears it. `is_default: bool` emitted per shoe in `shoes.json`.
+- Storage: nullable `UserProfile.default_shoe_id` FK column. Selection via `PATCH /api/profile {default_shoe_id: id | null}` (server rejects retired or missing shoes with 400). The PATCH also schedules a static rebuild so `shoes.json` stays fresh.
+- Tests: +17 in `backend/tests/test_default_shoe.py`; total backend tests now 108.
 
 ## Docker image size notes
 - Backend: 201 MB (was 222 MB; saved 21 MB by removing unused Pillow)
