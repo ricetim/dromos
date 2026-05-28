@@ -10,7 +10,7 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 COPY backend/pyproject.toml .
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" sqlmodel fitdecode \
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" "sqlmodel<0.0.30" fitdecode \
     httpx python-multipart apscheduler exifread
 COPY backend/app/ ./app/
 COPY --from=frontend-builder /app/dist /app/frontend
