@@ -184,7 +184,22 @@ export default function Gear() {
 
   const retireMutation = useMutation({
     mutationFn: (id: number) => updateShoe(id, { retired: true }),
-    onSuccess: () => {
+    // Optimistically move the shoe to the Retired section immediately; the
+    // chart's line-termination reconciles when shoes-timeline.json refetches.
+    onMutate: async (id: number) => {
+      await qc.cancelQueries({ queryKey: ["shoes"] });
+      const previous = qc.getQueryData<Shoe[]>(["shoes"]);
+      qc.setQueryData<Shoe[]>(["shoes"], (old) =>
+        old?.map((s) =>
+          s.id === id ? { ...s, retired: true, is_default: false } : s,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["shoes"], ctx.previous);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["shoes"] });
       qc.invalidateQueries({ queryKey: ["shoes-timeline"] });
     },
@@ -192,7 +207,20 @@ export default function Gear() {
 
   const defaultMutation = useMutation({
     mutationFn: (shoeId: number | null) => setDefaultShoe(shoeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
+    // Flip the star instantly; the backend rebuilds shoes.json synchronously
+    // so the onSettled refetch is safe and confirms the optimistic state.
+    onMutate: async (shoeId: number | null) => {
+      await qc.cancelQueries({ queryKey: ["shoes"] });
+      const previous = qc.getQueryData<Shoe[]>(["shoes"]);
+      qc.setQueryData<Shoe[]>(["shoes"], (old) =>
+        old?.map((s) => ({ ...s, is_default: s.id === shoeId })),
+      );
+      return { previous };
+    },
+    onError: (_err, _shoeId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["shoes"], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
   });
 
   const active = shoes.filter((s) => !s.retired);

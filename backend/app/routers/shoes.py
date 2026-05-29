@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlmodel import Session, select, func
 from app.database import get_session
 from app.models import Shoe, ActivityShoe, Activity
-from app.services.builder import bg_rebuild_globals
+from app.services.builder import STATIC_DIR, _rebuild_shoes, bg_rebuild_globals
 
 router = APIRouter(prefix="/api/shoes", tags=["shoes"])
 
@@ -28,6 +28,9 @@ def create_shoe(shoe: Shoe, background_tasks: BackgroundTasks, session: Session 
     session.add(shoe)
     session.commit()
     session.refresh(shoe)
+    # Rebuild shoes.json / shoes_timeline.json synchronously so the new shoe is
+    # present before the response returns; the broader globals refresh can lag.
+    _rebuild_shoes(session, STATIC_DIR)
     background_tasks.add_task(bg_rebuild_globals)
     return shoe
 
@@ -50,5 +53,10 @@ def update_shoe(shoe_id: int, data: dict, background_tasks: BackgroundTasks, ses
     session.add(shoe)
     session.commit()
     session.refresh(shoe)
+    # Rebuild shoes.json / shoes_timeline.json synchronously so retire/rename is
+    # reflected before the response returns (the frontend reconciles its
+    # optimistic update against these files). bg_rebuild_globals still refreshes
+    # activities.json's shoe_names in the background.
+    _rebuild_shoes(session, STATIC_DIR)
     background_tasks.add_task(bg_rebuild_globals)
     return shoe

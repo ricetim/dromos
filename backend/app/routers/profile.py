@@ -1,9 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.database import get_session
 from app.models import Shoe, UserProfile
-from app.services.builder import bg_rebuild_globals
+from app.services.builder import STATIC_DIR, _rebuild_shoes
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -19,7 +19,6 @@ def get_profile(session: Session = Depends(get_session)):
 @router.patch("")
 def update_profile(
     data: dict,
-    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ):
     profile = session.get(UserProfile, 1)
@@ -44,9 +43,11 @@ def update_profile(
     session.commit()
     session.refresh(profile)
 
-    # is_default in shoes.json depends on default_shoe_id; regenerate so the
-    # frontend's static fetch reflects the change immediately.
+    # is_default in shoes.json is the only static data that depends on
+    # default_shoe_id. Rebuild it synchronously so the response is not sent
+    # until the file the client re-reads is fresh — otherwise the frontend's
+    # post-mutation refetch races an async rebuild and reads the stale flag.
     if "default_shoe_id" in data:
-        background_tasks.add_task(bg_rebuild_globals)
+        _rebuild_shoes(session, STATIC_DIR)
 
     return profile

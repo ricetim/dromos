@@ -363,8 +363,8 @@ def test_strava_sync_does_not_touch_existing_shoes(session, tmp_path):
 
 
 def test_patch_profile_triggers_shoes_json_rebuild(client, session):
-    """Changing default_shoe_id must schedule bg_rebuild_globals so the
-    static shoes.json reflects the new is_default values."""
+    """Changing default_shoe_id must rebuild shoes.json synchronously so the
+    static is_default values are fresh before the response returns."""
     from app.routers import profile as profile_mod
 
     shoe = Shoe(name="Pace")
@@ -373,10 +373,10 @@ def test_patch_profile_triggers_shoes_json_rebuild(client, session):
     session.commit()
     session.refresh(shoe)
 
-    with mock_patch.object(profile_mod, "bg_rebuild_globals") as bg:
+    with mock_patch.object(profile_mod, "_rebuild_shoes") as rebuild:
         r = client.patch("/api/profile", json={"default_shoe_id": shoe.id})
         assert r.status_code == 200
-        bg.assert_called_once()
+        rebuild.assert_called_once()
 
 
 def test_patch_profile_skips_rebuild_when_default_unchanged(client, session):
@@ -386,7 +386,7 @@ def test_patch_profile_skips_rebuild_when_default_unchanged(client, session):
     session.add(UserProfile(id=1))
     session.commit()
 
-    with mock_patch.object(profile_mod, "bg_rebuild_globals") as bg:
+    with mock_patch.object(profile_mod, "_rebuild_shoes") as rebuild:
         r = client.patch("/api/profile", json={"hr_max": 190})
         assert r.status_code == 200
-        bg.assert_not_called()
+        rebuild.assert_not_called()

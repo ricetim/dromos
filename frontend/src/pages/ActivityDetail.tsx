@@ -391,8 +391,28 @@ export default function ActivityDetail() {
 
   const shoeMutation = useMutation({
     mutationFn: (shoeId: number | null) => updateActivityShoe(actId, shoeId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["activity-full", actId] });
+    // The dropdown reads its value from full.shoes (activity-{id}.json), which
+    // the backend rebuilds asynchronously. Patch the cache so the selection
+    // shows instantly — same approach as editMutation/corosRefreshMutation. We
+    // deliberately do NOT re-invalidate ["activity-full"] in onSettled, since
+    // that refetch would race the async rebuild and clobber this value.
+    onMutate: async (shoeId: number | null) => {
+      await queryClient.cancelQueries({ queryKey: ["activity-full", actId] });
+      const previous = queryClient.getQueryData(["activity-full", actId]);
+      const picked = shoeId == null ? null : allShoes.find((s) => s.id === shoeId);
+      const newShoes = picked
+        ? [{ id: picked.id, name: picked.name, brand: picked.brand }]
+        : [];
+      queryClient.setQueryData(["activity-full", actId], (old: any) =>
+        old ? { ...old, shoes: newShoes } : old,
+      );
+      return { previous };
+    },
+    onError: (_err, _shoeId, ctx: any) => {
+      if (ctx?.previous) queryClient.setQueryData(["activity-full", actId], ctx.previous);
+    },
+    onSettled: () => {
+      // shoes.json is rebuilt synchronously by the backend, so these are safe.
       queryClient.invalidateQueries({ queryKey: ["shoes"] });
       queryClient.invalidateQueries({ queryKey: ["activities"] });
     },
