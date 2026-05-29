@@ -62,6 +62,44 @@ def _downsample(points: list, max_points: int = 150) -> list:
     return [points[i] for i in sorted(indices)]
 
 
+# Bump when the *shape* of any emitted JSON changes, so deploys onto an existing
+# data volume know to do a full rebuild (per-activity files aren't covered by the
+# globals-only refresh). v2: trimmed activities.json + downsampled track/datapoints.
+STATIC_SCHEMA_VERSION = "2"
+
+
+def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
+    vf = static_dir / ".schema_version"
+    return vf.is_file() and vf.read_text().strip() == STATIC_SCHEMA_VERSION
+
+
+# ── Payload tuning ───────────────────────────────────────────────────────────
+# Coordinate precision: 5 decimals ≈ 1.1 m, far finer than any rendering here.
+_COORD_PREC = 5
+# Thumbnail routes (112×84px) need only a coarse outline.
+_THUMB_TRACK_POINTS = 48
+# Detail map polyline: ~one point every few metres is plenty for a route line.
+_MAP_TRACK_POINTS = 2000
+# Per-activity chart series: hover/lines stay crisp well below full FIT density.
+_CHART_DATAPOINTS = 2000
+
+# Activity fields the list/dashboard/calendar/compare-picker actually render.
+# Everything else (weather_*, fit_file_path, strava_id, elevation_*, source…)
+# is detail-only and lives in activity-{id}.json, not the eager list payload.
+_LIST_FIELDS = (
+    "id", "name", "started_at", "distance_m", "duration_s",
+    "avg_pace_s_per_km", "avg_hr", "rpe", "sport_type", "notes",
+)
+
+
+def _thumb_track(points: list) -> list:
+    """Coarse, low-precision [lat, lon] outline for list/dashboard thumbnails."""
+    return [
+        [round(lat, _COORD_PREC), round(lon, _COORD_PREC)]
+        for lat, lon in _downsample(points, _THUMB_TRACK_POINTS)
+    ]
+
+
 def _tile_xy(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     """Convert lat/lon to OSM tile coordinates at the given zoom level."""
     lat_r = math.radians(lat)
@@ -242,7 +280,13 @@ def rebuild_activity(
     ).all()
 
     gps_rows = [(dp.lat, dp.lon, dp.speed_m_s) for dp in dps if dp.lat and dp.lon]
-    track = [[lat, lon, spd] for lat, lon, spd in gps_rows]
+    # Map polyline: downsample + round. Full FIT density (~7k pts) is invisible
+    # at any map zoom and dominates the detail payload.
+    track = [
+        [round(lat, _COORD_PREC), round(lon, _COORD_PREC),
+         round(spd, 3) if spd is not None else None]
+        for lat, lon, spd in _downsample(gps_rows, _MAP_TRACK_POINTS)
+    ]
 
     _write_json(static_dir / f"activity-{activity_id}.json", {
         "activity": act.model_dump(),
@@ -250,7 +294,11 @@ def rebuild_activity(
         "track": track,
         "shoes": [{"id": s.id, "name": s.name, "brand": s.brand} for s in shoes],
     })
-    _write_json(static_dir / f"datapoints-{activity_id}.json", [dp.model_dump() for dp in dps])
+    # Chart series: downsample rows (keeps every field, ~3.5× fewer points).
+    _write_json(
+        static_dir / f"datapoints-{activity_id}.json",
+        [dp.model_dump() for dp in _downsample(dps, _CHART_DATAPOINTS)],
+    )
 
     if gps_rows:
         _prefetch_tiles(gps_rows, tile_dir)
@@ -419,8 +467,9 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
 
     result = []
     for a in activities:
-        d = a.model_dump()
-        d["track"] = _downsample(gps_by_id.get(a.id, []))
+        full = a.model_dump()
+        d = {k: full[k] for k in _LIST_FIELDS}
+        d["track"] = _thumb_track(gps_by_id.get(a.id, []))
         d["shoe_names"] = shoes_by_id.get(a.id, [])
         result.append(d)
 
@@ -561,6 +610,7 @@ def rebuild_all(
     rebuild_globals(session, static_dir)
     for act in session.exec(select(Activity)).all():
         rebuild_activity(act.id, session, static_dir, tile_dir)
+    (static_dir / ".schema_version").write_text(STATIC_SCHEMA_VERSION)
 
 
 # ---------------------------------------------------------------------------

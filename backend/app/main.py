@@ -21,7 +21,9 @@ def _startup_rebuild():
     then warm the in-process TTL caches.
     """
     from app.database import Session, engine
-    from app.services.builder import STATIC_DIR, rebuild_all, rebuild_globals
+    from app.services.builder import (
+        STATIC_DIR, rebuild_all, rebuild_globals, static_schema_is_current,
+    )
     from app.routers.activities import warm_cache as warm_activities
     from app.routers.stats import warm_cache as warm_stats
 
@@ -30,8 +32,14 @@ def _startup_rebuild():
         stale.unlink(missing_ok=True)
 
     with Session(engine) as session:
+        # Full rebuild when nothing exists yet, or when the JSON shape changed
+        # (per-activity files aren't covered by a globals-only refresh).
         if not (STATIC_DIR / "activities.json").exists():
             print("[startup] Static files missing — running full rebuild...")
+            rebuild_all(session)
+            print("[startup] Rebuild complete.")
+        elif not static_schema_is_current():
+            print("[startup] Static schema outdated — running full rebuild...")
             rebuild_all(session)
             print("[startup] Rebuild complete.")
         else:

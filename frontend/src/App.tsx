@@ -4,16 +4,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UnitsProvider, useUnits } from "./contexts/UnitsContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { getActivities, getStatsSummary, getPersonalBests, getVdot, getMetrics, getVolumeBuckets } from "./api/client";
-import ActivityList from "./pages/ActivityList";
-import Dashboard from "./pages/Dashboard";
-import Gear from "./pages/Gear";
-import Goals from "./pages/Goals";
-import CalendarView from "./pages/CalendarView";
-import Metrics from "./pages/Metrics";
 import ErrorBoundary from "./components/ErrorBoundary";
 
-// Lazy-load map-heavy pages so Leaflet only initialises when needed
+// Code-split every route: the entry bundle is just the app shell + router, and
+// each page (with its heavy deps — Recharts, Leaflet) is fetched only when
+// visited. Landing on a chart-free route no longer pays for Recharts.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const ActivityList = lazy(() => import("./pages/ActivityList"));
 const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
+const Gear = lazy(() => import("./pages/Gear"));
+const Goals = lazy(() => import("./pages/Goals"));
+const CalendarView = lazy(() => import("./pages/CalendarView"));
+const Metrics = lazy(() => import("./pages/Metrics"));
 const Compare = lazy(() => import("./pages/Compare"));
 
 const queryClient = new QueryClient({
@@ -27,17 +29,23 @@ const queryClient = new QueryClient({
   },
 });
 
-// Kick off prefetches immediately — data will be ready before the user navigates
-queryClient.prefetchQuery({ queryKey: ["activities"],              queryFn: getActivities,                    staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["stats-summary", "last_7_days"], queryFn: () => getStatsSummary("last_7_days"), staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["stats-summary", "month"],       queryFn: () => getStatsSummary("month"),       staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["stats-summary", "year"],        queryFn: () => getStatsSummary("year"),        staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["volume", "last_7_days"],        queryFn: () => getVolumeBuckets("last_7_days"), staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["volume", "month"],              queryFn: () => getVolumeBuckets("month"),       staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["volume", "year"],               queryFn: () => getVolumeBuckets("year"),        staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["personal-bests"],         queryFn: getPersonalBests,                 staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["vdot"],                   queryFn: getVdot,                          staleTime: Infinity });
-queryClient.prefetchQuery({ queryKey: ["metrics"],               queryFn: getMetrics,                       staleTime: Infinity });
+// Warm caches for instant cross-route navigation, but off the critical path:
+// the landing route's chunk and data should win the network first. React Query
+// dedupes, so a page that mounts before its warm finishes just shares the fetch.
+function warmCaches() {
+  queryClient.prefetchQuery({ queryKey: ["activities"],              queryFn: getActivities,                    staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["stats-summary", "last_7_days"], queryFn: () => getStatsSummary("last_7_days"), staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["stats-summary", "month"],       queryFn: () => getStatsSummary("month"),       staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["stats-summary", "year"],        queryFn: () => getStatsSummary("year"),        staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["volume", "last_7_days"],        queryFn: () => getVolumeBuckets("last_7_days"), staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["volume", "month"],              queryFn: () => getVolumeBuckets("month"),       staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["volume", "year"],               queryFn: () => getVolumeBuckets("year"),        staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["personal-bests"],         queryFn: getPersonalBests,                 staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["vdot"],                   queryFn: getVdot,                          staleTime: Infinity });
+  queryClient.prefetchQuery({ queryKey: ["metrics"],               queryFn: getMetrics,                       staleTime: Infinity });
+}
+if (typeof requestIdleCallback !== "undefined") requestIdleCallback(warmCaches);
+else setTimeout(warmCaches, 300);
 
 const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Dashboard", end: true },
