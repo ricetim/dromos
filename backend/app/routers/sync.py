@@ -12,6 +12,7 @@ from app.services.fit_parser import parse_fit_file
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR, STRAVA_REFRESH_TOKEN
 from app.services.builder import bg_rebuild_all
 from app.services.weather import fetch_weather
+from app.services.sun import sun_fields
 from app.services.shoe_default import stamp_default_shoe
 from datetime import datetime, timezone
 import threading
@@ -180,7 +181,9 @@ def _sync_strava_activities() -> None:
                     if weather:
                         for k, v in weather.items():
                             setattr(act, k, v)
-                        session.add(act)
+                    for k, v in sun_fields(first_gps["lat"], first_gps["lon"], started_at).items():
+                        setattr(act, k, v)
+                    session.add(act)
 
                 streams_imported += 1
 
@@ -276,7 +279,9 @@ def _sync_coros() -> None:
                     if weather:
                         for k, v in weather.items():
                             setattr(act, k, v)
-                        session.add(act)
+                    for k, v in sun_fields(first_gps["lat"], first_gps["lon"], result.started_at).items():
+                        setattr(act, k, v)
+                    session.add(act)
             session.commit()
             _last_sync = {"status": "ok", "ts": datetime.now(timezone.utc).isoformat(),
                           "new_activities": new_count, "error": None}

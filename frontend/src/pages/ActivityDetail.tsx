@@ -54,9 +54,8 @@ function WeatherBanner({ activity }: { activity: Activity }) {
   const precip = activity.weather_precip_mm != null && activity.weather_precip_mm > 0.1
     ? fmtPrecip(activity.weather_precip_mm) : null;
   const cloud = activity.weather_cloud_pct != null ? `${activity.weather_cloud_pct}% cloud` : null;
-  const timeOfDay = activity.weather_is_daytime === false ? "🌙 Before/after daylight" : null;
 
-  const parts = [temp, feelsLike, precip, cloud, timeOfDay].filter(Boolean);
+  const parts = [temp, feelsLike, precip, cloud].filter(Boolean);
 
   return (
     <div className="flex items-center gap-3 pt-3 mt-3 border-t border-gray-100 text-sm text-gray-600 flex-wrap">
@@ -521,6 +520,9 @@ export default function ActivityDetail() {
 
   const startDate = formatDateLong(act.started_at);
   const startTime = formatTime(act.started_at);
+  const finishTime = formatTime(
+    new Date(new Date(act.started_at).getTime() + act.duration_s * 1000).toISOString()
+  );
 
   return (
     <div className="p-4 max-w-5xl mx-auto space-y-4">
@@ -557,8 +559,14 @@ export default function ActivityDetail() {
               </h1>
             )}
             <p className="text-sm text-gray-500 mt-0.5">
-              {startDate} · {startTime}
+              {startDate} · {startTime} – {finishTime}
             </p>
+            {(act.sunrise || act.sunset) && (
+              <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-3">
+                {act.sunrise && <span>🌅 {formatTime(act.sunrise)}</span>}
+                {act.sunset && <span>🌇 {formatTime(act.sunset)}</span>}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full capitalize">

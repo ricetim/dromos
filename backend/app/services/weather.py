@@ -38,7 +38,6 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
                 "start_date": day,
                 "end_date": day,
                 "hourly": "temperature_2m,apparent_temperature,precipitation,cloudcover,windspeed_10m,weathercode",
-                "daily": "sunrise,sunset",
                 "timezone": "UTC",
             },
             timeout=10,
@@ -56,19 +55,8 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
         if idx is None:
             return None
 
-        daily = data.get("daily", {})
-        sunrise_str = (daily.get("sunrise") or [""])[0]
-        sunset_str  = (daily.get("sunset")  or [""])[0]
-
-        is_daytime = False
-        if sunrise_str and sunset_str:
-            def _parse_utc(s: str) -> int:
-                return int(s[11:13]) * 60 + int(s[14:16])
-            utc_dt = started_at.astimezone(timezone.utc)
-            run_minutes = utc_dt.hour * 60 + utc_dt.minute
-            is_daytime = _parse_utc(sunrise_str) <= run_minutes <= _parse_utc(sunset_str)
-
         wmo_code = int(hourly["weathercode"][idx] or 0)
+        # Sunrise/sunset are computed locally (see services/sun.py), not fetched.
         return {
             "weather_temp_c":       hourly["temperature_2m"][idx],
             "weather_feels_like_c": hourly["apparent_temperature"][idx],
@@ -76,7 +64,6 @@ def fetch_weather(lat: float, lon: float, started_at: datetime) -> dict | None:
             "weather_cloud_pct":    int(hourly["cloudcover"][idx] or 0),
             "weather_wind_kph":     hourly["windspeed_10m"][idx],
             "weather_condition":    _wmo_label(wmo_code),
-            "weather_is_daytime":   is_daytime,
         }
     except Exception:
         return None  # weather is non-critical; never block upload

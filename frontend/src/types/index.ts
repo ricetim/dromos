@@ -20,6 +20,8 @@ export interface Activity {
   weather_wind_kph?: number | null;
   weather_condition?: string | null;
   weather_is_daytime?: boolean | null;
+  sunrise?: string | null;
+  sunset?: string | null;
   track?: [number, number][];
   shoe_names?: string[];
   shoes?: { id: number; name: string; brand: string | null }[];

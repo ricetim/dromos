@@ -17,6 +17,7 @@ from app.models import Activity, ActivityShoe, DataPoint, Photo, Lap, Shoe
 from app.services.fit_parser import parse_fit_file
 from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals, _rebuild_shoes, STATIC_DIR
 from app.services.weather import fetch_weather
+from app.services.sun import sun_fields
 from app.services.coros import login as coros_login, list_activities as coros_list, get_activity_detail
 from app.services.shoe_default import stamp_default_shoe
 
@@ -258,9 +259,12 @@ def upload_fit(
         if weather:
             for k, v in weather.items():
                 setattr(act, k, v)
-            session.add(act)
-            session.commit()
-            session.refresh(act)
+        # Sunrise/sunset: computed locally, no network — always set when GPS exists.
+        for k, v in sun_fields(first_gps["lat"], first_gps["lon"], result.started_at).items():
+            setattr(act, k, v)
+        session.add(act)
+        session.commit()
+        session.refresh(act)
 
     _invalidate_list_cache()
     from app.routers.stats import _invalidate_pb_cache, _invalidate_stats_cache

@@ -28,10 +28,6 @@ def _mock_response():
             "windspeed_10m":       [12.0] * 24,
             "weathercode":         [0] * 24,
         },
-        "daily": {
-            "sunrise": ["2024-05-01T05:30"],
-            "sunset":  ["2024-05-01T20:15"],
-        },
     }
 
 
@@ -45,7 +41,8 @@ def test_fetch_weather_returns_dict():
     assert result is not None
     assert result["weather_temp_c"] == 15.0
     assert result["weather_condition"] == "Clear"
-    assert result["weather_is_daytime"] is True
+    # Sun times are no longer part of the weather payload (computed locally).
+    assert "weather_is_daytime" not in result
 
 
 def test_fetch_weather_returns_none_on_error():
@@ -53,16 +50,6 @@ def test_fetch_weather_returns_none_on_error():
     with patch("httpx.get", side_effect=Exception("network error")):
         result = fetch_weather(51.5, -0.1, started_at)
     assert result is None
-
-
-def test_fetch_weather_before_sunrise():
-    started_at = datetime(2024, 5, 1, 4, 0, tzinfo=timezone.utc)  # before 05:30
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = _mock_response()
-    with patch("httpx.get", return_value=mock_resp):
-        result = fetch_weather(51.5, -0.1, started_at)
-    assert result["weather_is_daytime"] is False
 
 
 def test_fetch_weather_utc_hour_index():

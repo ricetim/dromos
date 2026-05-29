@@ -24,6 +24,7 @@ def _startup_rebuild():
     from app.services.builder import (
         STATIC_DIR, rebuild_all, rebuild_globals, static_schema_is_current,
     )
+    from app.services.sun import backfill_sun_times
     from app.routers.activities import warm_cache as warm_activities
     from app.routers.stats import warm_cache as warm_stats
 
@@ -32,6 +33,12 @@ def _startup_rebuild():
         stale.unlink(missing_ok=True)
 
     with Session(engine) as session:
+        # Populate sunrise/sunset for any activity missing them (offline, no
+        # network). Runs before the rebuild so the static files pick them up.
+        filled = backfill_sun_times(session)
+        if filled:
+            print(f"[startup] Backfilled sun times for {filled} activities.")
+
         # Full rebuild when nothing exists yet, or when the JSON shape changed
         # (per-activity files aren't covered by a globals-only refresh).
         if not (STATIC_DIR / "activities.json").exists():

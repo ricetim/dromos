@@ -42,6 +42,8 @@ def create_db_and_tables():
         _add_column(conn, "activity", "weather_wind_kph", "REAL")
         _add_column(conn, "activity", "weather_condition", "TEXT")
         _add_column(conn, "activity", "weather_is_daytime", "INTEGER")
+        _add_column(conn, "activity", "sunrise", "TIMESTAMP")
+        _add_column(conn, "activity", "sunset", "TIMESTAMP")
         _add_column(conn, "userprofile", "default_shoe_id", "INTEGER")
         # Drop vestigial Strava gear id; SQLite 3.35+ supports DROP COLUMN.
         # Wrapped in try/except for idempotency on already-migrated DBs.

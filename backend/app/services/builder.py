@@ -65,7 +65,8 @@ def _downsample(points: list, max_points: int = 150) -> list:
 # Bump when the *shape* of any emitted JSON changes, so deploys onto an existing
 # data volume know to do a full rebuild (per-activity files aren't covered by the
 # globals-only refresh). v2: trimmed activities.json + downsampled track/datapoints.
-STATIC_SCHEMA_VERSION = "2"
+# v3: added sunrise/sunset to activity-{id}.json.
+STATIC_SCHEMA_VERSION = "3"
 
 
 def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:

@@ -30,6 +30,11 @@ class Activity(SQLModel, table=True):
     weather_condition: Optional[str] = None
     weather_is_daytime: Optional[bool] = None
 
+    # Sunrise/sunset at the run's location, computed locally (see services/sun.py).
+    # Stored as naive UTC datetimes, like started_at.
+    sunrise: Optional[datetime] = None
+    sunset: Optional[datetime] = None
+
     datapoints: List["DataPoint"] = Relationship(back_populates="activity")
     photos: List["Photo"] = Relationship(back_populates="activity")
     activity_shoes: List["ActivityShoe"] = Relationship(back_populates="activity")
