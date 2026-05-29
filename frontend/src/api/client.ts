@@ -47,6 +47,7 @@ export const getPersonalBests = () =>
 export const getGoals = () => _fetchJson("/static/goals.json");
 
 export const getShoes = () => _fetchJson("/static/shoes.json");
+export const getShoesTimeline = () => _fetchJson("/static/shoes_timeline.json");
 
 export const getMetrics = () => _fetchJson("/static/metrics.json");
 

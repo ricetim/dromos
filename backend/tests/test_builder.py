@@ -204,8 +204,10 @@ def test_bg_rebuild_after_delete_removes_files(session, act, tmp_path, monkeypat
     assert acts == []
 
 
-def test_rebuild_shoes_writes_timeline(session, tmp_path):
-    """Each shoe's timeline lists cumulative km in chronological order."""
+def test_rebuild_shoes_emits_day_aligned_timeline(session, tmp_path):
+    """shoes.json keeps array shape with per-shoe metadata;
+    shoes_timeline.json is a dense day-aligned series from first use to today,
+    with carry-forward across rest days."""
     from app.services.builder import _rebuild_shoes
     from app.models import ActivityShoe
 
@@ -232,31 +234,46 @@ def test_rebuild_shoes_writes_timeline(session, tmp_path):
     session.commit()
 
     _rebuild_shoes(session, tmp_path)
-    data = json.loads((tmp_path / "shoes.json").read_text())
-    assert len(data) == 1
-    s = data[0]
+    shoes_data = json.loads((tmp_path / "shoes.json").read_text())
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
 
-    assert s["timeline"] == [
-        {"date": "2025-01-05", "cumulative_km": 5.0},
-        {"date": "2025-06-10", "cumulative_km": 13.0},
-    ]
-    assert s["years"] == [2025]
+    assert len(shoes_data) == 1
+    s = shoes_data[0]
     assert s["total_distance_km"] == 13.0
+    assert s["first_used"] == "2025-01-05"
+    assert s["years"] == [2025]
+
+    key = str(shoe.id)
+    by_date = {row["date"]: row for row in daily}
+    assert daily[0]["date"] == "2025-01-05"
+    assert by_date["2025-01-05"][key] == 5.0
+    # Carry-forward across rest days
+    assert by_date["2025-06-09"][key] == 5.0
+    assert by_date["2025-06-10"][key] == 13.0
+    # Carry-forward after last activity
+    assert by_date["2025-12-31"][key] == 13.0
 
 
-def test_rebuild_shoes_timeline_empty_when_no_activities(session, tmp_path):
+def test_rebuild_shoes_empty_when_no_activities(session, tmp_path):
+    """A shoe with no activities is present in shoes.json but contributes no
+    timeline entries; first_used is null."""
     from app.services.builder import _rebuild_shoes
     session.add(Shoe(name="Unused", retirement_threshold_km=800.0))
     session.commit()
 
     _rebuild_shoes(session, tmp_path)
-    data = json.loads((tmp_path / "shoes.json").read_text())
-    assert data[0]["timeline"] == []
-    assert data[0]["years"] == []
-    assert data[0]["total_distance_km"] == 0.0
+    shoes_data = json.loads((tmp_path / "shoes.json").read_text())
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
+    assert daily == []
+    s = shoes_data[0]
+    assert s["total_distance_km"] == 0.0
+    assert s["first_used"] is None
+    assert s["years"] == []
 
 
-def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
+def test_rebuild_shoes_same_day_aggregates(session, tmp_path):
+    """Two activities on the same day collapse to one timeline row with
+    summed cumulative km."""
     from app.services.builder import _rebuild_shoes
     from app.models import ActivityShoe
 
@@ -275,11 +292,117 @@ def test_rebuild_shoes_timeline_distinct_years(session, tmp_path):
     session.commit()
 
     _rebuild_shoes(session, tmp_path)
-    s = json.loads((tmp_path / "shoes.json").read_text())[0]
+    shoes_data = json.loads((tmp_path / "shoes.json").read_text())
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
+    s = shoes_data[0]
     assert s["years"] == [2024, 2025, 2026]
-    cums = [pt["cumulative_km"] for pt in s["timeline"]]
-    assert cums == sorted(cums)
-    assert cums[-1] == 10.0
+    assert s["total_distance_km"] == 10.0
+
+    key = str(shoe.id)
+    by_date = {row["date"]: row for row in daily}
+    # Same-day aggregation: 4 + 3 = 7 on 2024-03-01
+    assert by_date["2024-03-01"][key] == 7.0
+    assert by_date["2025-03-01"][key] == 9.0
+    assert by_date["2026-03-01"][key] == 10.0
+
+
+def test_rebuild_shoes_retired_line_ends_at_last_activity(session, tmp_path):
+    """A retired shoe's daily series emits its final value on its last
+    activity date and null thereafter — so the chart line terminates at
+    retirement instead of carrying flat to today."""
+    from app.services.builder import _rebuild_shoes
+    from app.models import ActivityShoe
+
+    retired_shoe = Shoe(name="Old", retirement_threshold_km=800.0, retired=True)
+    active_shoe = Shoe(name="Current", retirement_threshold_km=800.0, retired=False)
+    session.add_all([retired_shoe, active_shoe])
+    session.flush()
+
+    # Both shoes have an early activity on 2025-01-01 (sets axis start);
+    # retired shoe last used 2025-02-01; active shoe still running on 2025-04-01.
+    a1 = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        distance_m=5000.0, duration_s=1500, elevation_gain_m=10.0, sport_type="run",
+    )
+    a2 = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 2, 1, tzinfo=timezone.utc),
+        distance_m=4000.0, duration_s=1200, elevation_gain_m=10.0, sport_type="run",
+    )
+    a3 = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 4, 1, tzinfo=timezone.utc),
+        distance_m=3000.0, duration_s=900, elevation_gain_m=10.0, sport_type="run",
+    )
+    session.add_all([a1, a2, a3])
+    session.flush()
+    session.add_all([
+        ActivityShoe(activity_id=a1.id, shoe_id=retired_shoe.id),
+        ActivityShoe(activity_id=a2.id, shoe_id=retired_shoe.id),
+        ActivityShoe(activity_id=a3.id, shoe_id=active_shoe.id),
+    ])
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
+    by_date = {row["date"]: row for row in daily}
+    retired_k = str(retired_shoe.id)
+    active_k = str(active_shoe.id)
+
+    # Retired shoe: real values on/before its last activity day
+    assert by_date["2025-01-01"][retired_k] == 5.0
+    assert by_date["2025-01-15"][retired_k] == 5.0  # rest-day carry-forward
+    assert by_date["2025-02-01"][retired_k] == 9.0  # last activity day
+    # Retired shoe: null after its last activity day
+    assert by_date["2025-02-02"][retired_k] is None
+    assert by_date["2025-04-01"][retired_k] is None
+    # Active shoe is unaffected: still has its flat-tail carry-forward
+    # (still active, so carries through to last row of daily)
+    assert by_date["2025-04-01"][active_k] == 3.0
+
+
+def test_rebuild_shoes_pre_first_use_is_null(session, tmp_path):
+    """A shoe whose first use is later than another shoe's has null values
+    for every day before its own first use — so the chart line starts at its
+    own first activity, not the axis origin."""
+    from app.services.builder import _rebuild_shoes
+    from app.models import ActivityShoe
+
+    early = Shoe(name="Early", retirement_threshold_km=800.0)
+    late = Shoe(name="Late", retirement_threshold_km=800.0)
+    session.add_all([early, late])
+    session.flush()
+
+    a_early = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        distance_m=4000.0, duration_s=1200, elevation_gain_m=10.0, sport_type="run",
+    )
+    a_late = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 3, 1, tzinfo=timezone.utc),
+        distance_m=2000.0, duration_s=600, elevation_gain_m=5.0, sport_type="run",
+    )
+    session.add_all([a_early, a_late])
+    session.flush()
+    session.add_all([
+        ActivityShoe(activity_id=a_early.id, shoe_id=early.id),
+        ActivityShoe(activity_id=a_late.id, shoe_id=late.id),
+    ])
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
+    by_date = {row["date"]: row for row in daily}
+    early_k, late_k = str(early.id), str(late.id)
+
+    assert by_date["2025-01-01"][early_k] == 4.0
+    assert by_date["2025-01-01"][late_k] is None
+    assert by_date["2025-02-28"][late_k] is None
+    assert by_date["2025-03-01"][late_k] == 2.0
+    # Early still carrying forward on Late's start day
+    assert by_date["2025-03-01"][early_k] == 4.0
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -4,15 +4,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
-import { getShoes, createShoe, updateShoe, setDefaultShoe } from "../api/client";
+import { getShoes, getShoesTimeline, createShoe, updateShoe, setDefaultShoe } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 import { SHOE_RETIREMENT_MI, SHOE_RETIREMENT_KM, CHART_COLORS } from "../config";
 import { formatDateShort, formatDateMonthDay } from "../utils/dates";
 
-interface TimelinePoint {
-  date: string;
-  cumulative_km: number;
-}
+type DailyRow = { date: string } & Record<string, number | null>;
 
 interface Shoe {
   id: number;
@@ -24,7 +21,7 @@ interface Shoe {
   retirement_threshold_km: number;
   total_distance_km: number;
   activity_ids?: number[];
-  timeline?: TimelinePoint[];
+  first_used?: string | null;
   years?: number[];
 }
 
@@ -42,54 +39,28 @@ const KM_PER_MI = 1.60934;
 
 type YearFilter = "all" | number;
 
-function buildChartData(shoes: Shoe[], year: YearFilter) {
-  // For each shoe, derive the points that should appear on the chart.
-  // Year-scoped view: include only entries within [YYYY-01-01, YYYY-12-31].
-  // If the shoe had earlier history, prepend a synthetic Jan-1 point at the
-  // last pre-year cumulative_km, so the line enters at the right height.
-  const perShoe = new Map<number, TimelinePoint[]>();
+function buildChartData(daily: DailyRow[], shoes: Shoe[], year: YearFilter) {
+  const rows = year === "all"
+    ? daily
+    : daily.filter((r) => r.date.startsWith(`${year}-`));
+  const visibleShoeIds = new Set<number>();
   for (const shoe of shoes) {
-    const tl = shoe.timeline ?? [];
-    if (year === "all") {
-      perShoe.set(shoe.id, tl);
-      continue;
-    }
-    const start = `${year}-01-01`;
-    const end = `${year}-12-31`;
-    const inWindow = tl.filter((p) => p.date >= start && p.date <= end);
-    const lastBefore = [...tl].reverse().find((p) => p.date < start);
-    if (inWindow.length === 0 && !lastBefore) continue; // no data for this shoe
-    const points: TimelinePoint[] = [];
-    if (lastBefore) {
-      points.push({ date: start, cumulative_km: lastBefore.cumulative_km });
-    }
-    points.push(...inWindow);
-    perShoe.set(shoe.id, points);
+    const k = String(shoe.id);
+    if (rows.some((r) => r[k] != null)) visibleShoeIds.add(shoe.id);
   }
-
-  // Merge into a single dataset: one row per unique date, one column per shoe.
-  const allDates = new Set<string>();
-  for (const points of perShoe.values()) {
-    for (const p of points) allDates.add(p.date);
-  }
-  const sorted = [...allDates].sort();
-  const rows = sorted.map((date) => {
-    const row: { date: string; [k: string]: string | number | null } = { date };
-    for (const [shoeId, points] of perShoe.entries()) {
-      const exact = points.find((p) => p.date === date);
-      row[`shoe_${shoeId}`] = exact ? exact.cumulative_km : null;
-    }
-    return row;
-  });
-  const visibleShoeIds = new Set(perShoe.keys());
   return { rows, visibleShoeIds };
 }
 
-function ShoeTimelineChart({ shoes, year }: { shoes: Shoe[]; year: YearFilter }) {
+function ShoeTimelineChart({
+  shoes, daily, year,
+}: { shoes: Shoe[]; daily: DailyRow[]; year: YearFilter }) {
   const { system, fmtShoe } = useUnits();
   const distUnit = system === "imperial" ? "mi" : "km";
 
-  const { rows, visibleShoeIds } = useMemo(() => buildChartData(shoes, year), [shoes, year]);
+  const { rows, visibleShoeIds } = useMemo(
+    () => buildChartData(daily, shoes, year),
+    [daily, shoes, year],
+  );
   if (rows.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-400">
@@ -123,8 +94,7 @@ function ShoeTimelineChart({ shoes, year }: { shoes: Shoe[]; year: YearFilter })
             <Tooltip
               labelFormatter={(d: string) => formatDateShort(d)}
               formatter={(v: number, name: string) => {
-                const id = Number(name.replace("shoe_", ""));
-                const shoe = shoes.find((s) => s.id === id);
+                const shoe = shoes.find((s) => String(s.id) === name);
                 return [fmtShoe(v), shoe?.name ?? name];
               }}
             />
@@ -142,14 +112,14 @@ function ShoeTimelineChart({ shoes, year }: { shoes: Shoe[]; year: YearFilter })
               <Line
                 key={shoe.id}
                 type="monotone"
-                dataKey={`shoe_${shoe.id}`}
-                name={`shoe_${shoe.id}`}
+                dataKey={String(shoe.id)}
+                name={String(shoe.id)}
                 stroke={CHART_COLORS[i % CHART_COLORS.length]}
                 strokeWidth={2}
                 strokeDasharray={shoe.retired ? "4 2" : undefined}
                 strokeOpacity={shoe.retired ? 0.5 : 1}
                 dot={false}
-                connectNulls
+                connectNulls={false}
                 isAnimationActive={false}
               />
             ))}
@@ -188,6 +158,10 @@ export default function Gear() {
     queryKey: ["shoes"],
     queryFn: getShoes,
   });
+  const { data: daily = [] } = useQuery<DailyRow[]>({
+    queryKey: ["shoes-timeline"],
+    queryFn: getShoesTimeline,
+  });
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -202,6 +176,7 @@ export default function Gear() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shoes"] });
+      qc.invalidateQueries({ queryKey: ["shoes-timeline"] });
       setForm({ name: "", brand: "", retirement_threshold: defaultThreshold });
       setShowForm(false);
     },
@@ -209,7 +184,10 @@ export default function Gear() {
 
   const retireMutation = useMutation({
     mutationFn: (id: number) => updateShoe(id, { retired: true }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["shoes"] });
+      qc.invalidateQueries({ queryKey: ["shoes-timeline"] });
+    },
   });
 
   const defaultMutation = useMutation({
@@ -226,7 +204,7 @@ export default function Gear() {
     for (const s of shoes) for (const y of s.years ?? []) all.add(y);
     return [...all].sort((a, b) => b - a);
   }, [shoes]);
-  const hasTimelineData = shoes.some((s) => (s.timeline?.length ?? 0) > 0);
+  const hasTimelineData = daily.length > 0;
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-6">
@@ -256,7 +234,7 @@ export default function Gear() {
         </div>
       </div>
 
-      {hasTimelineData && <ShoeTimelineChart shoes={shoes} year={yearFilter} />}
+      {hasTimelineData && <ShoeTimelineChart shoes={shoes} daily={daily} year={yearFilter} />}
 
       {showForm && (
         <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">

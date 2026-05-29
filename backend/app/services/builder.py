@@ -471,6 +471,17 @@ def _rebuild_goals(session: Session, static_dir: Path) -> None:
 
 
 def _rebuild_shoes(session: Session, static_dir: Path) -> None:
+    """Emit two files:
+
+    - ``shoes.json``: array of per-shoe metadata (retained shape, consumed by
+      ActivityList/ActivityDetail/Gear); each entry now also exposes
+      ``first_used`` for chart-line origin styling.
+    - ``shoes_timeline.json``: ``[{date, "<shoe_id>": cum_km, ...}, ...]`` — a
+      dense day-aligned series from the earliest first-use across all shoes
+      through today, with carry-forward on rest days and post-retirement.
+      Values are ``null`` before that shoe's own first use, so each line
+      starts at its own entry point rather than the axis origin.
+    """
     from app.models import Activity, ActivityShoe, Shoe, UserProfile
 
     shoes = session.exec(select(Shoe)).all()
@@ -483,30 +494,57 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
         .order_by(ActivityShoe.shoe_id, Activity.started_at)
     ).all()
 
-    timelines: dict[int, list[dict]] = defaultdict(list)
-    years: dict[int, set[int]] = defaultdict(set)
+    per_day_m: dict[int, dict[date, float]] = defaultdict(lambda: defaultdict(float))
+    first_day: dict[int, date] = {}
     act_ids: dict[int, list[int]] = defaultdict(list)
-    cum_m: dict[int, float] = defaultdict(float)
+    total_m: dict[int, float] = defaultdict(float)
     for shoe_id, started_at, distance_m, activity_id in rows:
-        cum_m[shoe_id] += distance_m or 0.0
-        timelines[shoe_id].append({
-            "date": started_at.date().isoformat(),
-            "cumulative_km": round(cum_m[shoe_id] / 1000, 1),
-        })
-        years[shoe_id].add(started_at.year)
+        d = started_at.date()
+        dist = distance_m or 0.0
+        per_day_m[shoe_id][d] += dist
+        first_day.setdefault(shoe_id, d)
         act_ids[shoe_id].append(activity_id)
+        total_m[shoe_id] += dist
 
-    result = []
+    if first_day:
+        axis_start = min(first_day.values())
+        axis_end = date.today()
+        days = [axis_start + timedelta(days=i)
+                for i in range((axis_end - axis_start).days + 1)]
+    else:
+        days = []
+
+    daily: list[dict] = [{"date": d.isoformat()} for d in days]
     for shoe in shoes:
-        result.append({
-            **shoe.model_dump(),
-            "total_distance_km": round(cum_m.get(shoe.id, 0.0) / 1000, 1),
-            "activity_ids": sorted(act_ids.get(shoe.id, []), reverse=True),
-            "timeline": timelines.get(shoe.id, []),
-            "years": sorted(years.get(shoe.id, [])),
-            "is_default": shoe.id == default_id,
-        })
-    _write_json(static_dir / "shoes.json", result)
+        if shoe.id not in first_day:
+            continue
+        key = str(shoe.id)
+        fd = first_day[shoe.id]
+        # For retired shoes, terminate the line on the last activity day
+        # (we don't store a retirement timestamp — last use is the proxy).
+        last_day = max(per_day_m[shoe.id].keys()) if shoe.retired else None
+        cum_km = 0.0
+        for i, d in enumerate(days):
+            if d < fd:
+                daily[i][key] = None
+                continue
+            if last_day is not None and d > last_day:
+                daily[i][key] = None
+                continue
+            cum_km += per_day_m[shoe.id].get(d, 0.0) / 1000
+            daily[i][key] = round(cum_km, 2)
+
+    shoes_meta = [{
+        **shoe.model_dump(),
+        "total_distance_km": round(total_m.get(shoe.id, 0.0) / 1000, 1),
+        "activity_ids": sorted(act_ids.get(shoe.id, []), reverse=True),
+        "first_used": first_day[shoe.id].isoformat() if shoe.id in first_day else None,
+        "years": sorted({d.year for d in per_day_m[shoe.id]}) if shoe.id in per_day_m else [],
+        "is_default": shoe.id == default_id,
+    } for shoe in shoes]
+
+    _write_json(static_dir / "shoes.json", shoes_meta)
+    _write_json(static_dir / "shoes_timeline.json", daily)
 
 
 # ---------------------------------------------------------------------------
