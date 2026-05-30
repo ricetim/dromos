@@ -46,11 +46,19 @@ def _json_default(obj):
 
 
 def _write_json(path: Path, data) -> None:
-    """Atomic write: write to .tmp, then os.replace so nginx never serves partial."""
+    """Atomic write: write to .tmp, then os.replace so readers never see partial.
+
+    Also emits a Brotli-precompressed ``<path>.br`` sibling so the static mount
+    can serve it directly with ``Content-Encoding: br`` to capable clients.
+    """
+    from app.services.precompress import write_br
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, default=_json_default))
+    payload = json.dumps(data, default=_json_default).encode("utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(payload)
     tmp.replace(path)
+    write_br(path, payload)
 
 
 def _downsample(points: list, max_points: int = 150) -> list:
@@ -66,7 +74,8 @@ def _downsample(points: list, max_points: int = 150) -> list:
 # data volume know to do a full rebuild (per-activity files aren't covered by the
 # globals-only refresh). v2: trimmed activities.json + downsampled track/datapoints.
 # v3: added sunrise/sunset to activity-{id}.json.
-STATIC_SCHEMA_VERSION = "3"
+# v4: Brotli .br siblings — force a full rebuild so per-activity files get one.
+STATIC_SCHEMA_VERSION = "4"
 
 
 def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
@@ -638,6 +647,7 @@ def bg_rebuild_after_delete(activity_id: int, static_dir: Path = STATIC_DIR) -> 
     try:
         for name in (f"activity-{activity_id}.json", f"datapoints-{activity_id}.json"):
             (static_dir / name).unlink(missing_ok=True)
+            (static_dir / (name + ".br")).unlink(missing_ok=True)
         with _new_session() as session:
             rebuild_globals(session, static_dir)
     except Exception as exc:

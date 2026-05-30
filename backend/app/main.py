@@ -1,13 +1,18 @@
+import mimetypes
 import os
+import stat as stat_module
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+import anyio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse
-from starlette.staticfiles import StaticFiles
+from starlette.staticfiles import NotModifiedResponse, StaticFiles
 from app.database import create_db_and_tables
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -101,9 +106,39 @@ def health():
 # ── Static file serving ────────────────────────────────────────────────────
 
 
-class SPAStaticFiles(StaticFiles):
+class PrecompressedStaticFiles(StaticFiles):
+    """Serve a sibling ``<file>.br`` with ``Content-Encoding: br`` when the
+    client advertises Brotli support and the precompressed file exists.
+
+    Falls back to the normal (uncompressed) file otherwise — GZipMiddleware can
+    still gzip that on the fly. Range requests always fall back, since a byte
+    range of a Brotli stream isn't independently decodable.
+    """
+    async def get_response(self, path: str, scope):
+        if scope["method"] in ("GET", "HEAD"):
+            request_headers = Headers(scope=scope)
+            accept = request_headers.get("Accept-Encoding", "")
+            if "br" in accept and "range" not in request_headers:
+                full_path, stat_result = await anyio.to_thread.run_sync(
+                    self.lookup_path, path + ".br"
+                )
+                if stat_result is not None and stat_module.S_ISREG(stat_result.st_mode):
+                    media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+                    response = FileResponse(
+                        full_path, stat_result=stat_result, media_type=media_type,
+                    )
+                    response.headers["Content-Encoding"] = "br"
+                    response.headers.add_vary_header("Accept-Encoding")
+                    if self.is_not_modified(response.headers, request_headers):
+                        return NotModifiedResponse(response.headers)
+                    return response
+        return await super().get_response(path, scope)
+
+
+class SPAStaticFiles(PrecompressedStaticFiles):
     """Serve React SPA: try the requested file, fall back to index.html for
-    client-side routes (e.g. /activities/123 → index.html).
+    client-side routes (e.g. /activities/123 → index.html). Brotli-aware via the
+    PrecompressedStaticFiles base (so index.html.br is served on fallback too).
 
     Must catch starlette.exceptions.HTTPException (base class), not
     fastapi.HTTPException (subclass) — StaticFiles raises the base class.
@@ -135,7 +170,7 @@ _static_dir = Path(os.environ.get("DATA_DIR", "/data")) / "static"
 _static_dir.mkdir(parents=True, exist_ok=True)
 
 # Mount order matters: specific prefixes before the catch-all "/"
-app.mount("/static", StaticFiles(directory=str(_static_dir)), name="data-static")
+app.mount("/static", PrecompressedStaticFiles(directory=str(_static_dir)), name="data-static")
 _spa_dir = os.environ.get("SPA_DIR", "/app/frontend")
 if Path(_spa_dir).is_dir():
     app.mount("/", SPAStaticFiles(directory=_spa_dir, html=True), name="spa")
