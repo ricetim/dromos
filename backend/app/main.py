@@ -30,8 +30,6 @@ def _startup_rebuild():
         STATIC_DIR, rebuild_all, rebuild_globals, static_schema_is_current,
     )
     from app.services.sun import backfill_sun_times
-    from app.routers.activities import warm_cache as warm_activities
-    from app.routers.stats import warm_cache as warm_stats
 
     # Remove orphaned static files for retired features (plans).
     for stale in [STATIC_DIR / "plans.json", *STATIC_DIR.glob("plan-*.json")]:
@@ -57,8 +55,6 @@ def _startup_rebuild():
         else:
             print("[startup] Refreshing static globals...")
             rebuild_globals(session)
-            warm_activities(session)
-            warm_stats(session)
 
 
 @asynccontextmanager
@@ -88,9 +84,8 @@ app.add_middleware(
 )
 
 
-from app.routers import activities, stats, sync, shoes, goals, profile, tiles
+from app.routers import activities, sync, shoes, goals, profile, tiles
 app.include_router(activities.router)
-app.include_router(stats.router)
 app.include_router(sync.router)
 app.include_router(shoes.router)
 app.include_router(goals.router)

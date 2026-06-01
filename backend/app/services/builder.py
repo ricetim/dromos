@@ -492,7 +492,7 @@ def _today_fn() -> date:
 
 
 def _rebuild_dashboard(session: Session, static_dir: Path) -> None:
-    from app.routers.stats import get_training_load, get_vdot, get_personal_bests
+    from app.services.stats import get_training_load, get_vdot, get_personal_bests
     from app.models import Activity
 
     acts = session.exec(select(Activity)).all()

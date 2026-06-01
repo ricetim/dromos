@@ -1,59 +1,31 @@
 """
-Stats router: aggregate statistics, training load (ATL/CTL/TSB), VDOT,
-pace zones, and per-activity analytics.
+Aggregate running statistics computed from the database.
+
+These functions are the source of truth for the dashboard's training-load,
+VDOT, and personal-best sections. They are consumed by
+``app.services.builder._rebuild_dashboard``, which bakes their output into
+``dashboard.json``; the frontend then reads that static file directly (reads
+never touch Python). Keep these pure: take a ``Session``, return plain data.
 """
 import math
-import time as _time
 from collections import namedtuple
 from datetime import date, timedelta
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select
 
-from app.database import get_session
 from app.models import Activity, DataPoint, UserProfile
 from app.services.analytics import (
     compute_vdot,
     compute_vdot_hr_adjusted,
     compute_pace_zones,
-    compute_trimp,
     compute_hrtss,
     compute_training_loads,
-    PaceZones,
-    TrainingLoad,
+    predict_race_time_s,
 )
 
-router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 # ---------------------------------------------------------------------------
-# Server-side TTL caches for expensive aggregate endpoints
-# ---------------------------------------------------------------------------
-
-_tload_cache: dict = {}     # keyed by days int
-_TLOAD_TTL = 300            # 5 minutes
-
-_vdot_cache: dict = {"data": None, "ts": 0.0}
-_VDOT_TTL = 900             # 15 minutes
-
-
-def _invalidate_stats_cache() -> None:
-    """Invalidate all stats caches — call after a new activity is imported."""
-    _tload_cache.clear()
-    _vdot_cache["data"] = None
-
-
-def warm_cache(session: Session) -> None:
-    """Pre-populate all stats caches. Called at startup."""
-    try:
-        get_vdot(session=session)
-        get_personal_bests(session=session)
-    except Exception:
-        pass  # Don't crash startup if warmup fails
-
-
-# ---------------------------------------------------------------------------
-# Helper: build TSS-by-date dict from all activities in the DB
+# Training load (ATL / CTL / TSB)
 # ---------------------------------------------------------------------------
 
 def _build_tss_by_date(session: Session) -> dict[date, float]:
@@ -79,52 +51,14 @@ def _build_tss_by_date(session: Session) -> dict[date, float]:
     return tss_by_date
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-@router.get("/summary")
-def get_summary(
-    period: str = Query("last_7_days", pattern="^(last_7_days|month|year)$"),
-    session: Session = Depends(get_session),
-):
-    """
-    Aggregate run counts, distance, duration, elevation for a calendar-bound period.
-
-    The dashboard reads /static/dashboard.json directly (built by
-    app.services.builder._rebuild_dashboard). This endpoint exists for
-    API consumers and re-derives from the static file for consistency.
-    """
-    from app.services.builder import STATIC_DIR
-    import json as _json
-    path = STATIC_DIR / "dashboard.json"
-    if not path.exists():
-        return {"period": period, "count": 0, "total_distance_km": 0.0,
-                "total_duration_s": 0, "total_elevation_m": 0.0,
-                "avg_pace_s_per_km": None}
-    data = _json.loads(path.read_text())
-    return data["summary"].get(period, {})
-
-
-@router.get("/training-load")
-def get_training_load(
-    days: int = Query(90, ge=7, le=365),
-    session: Session = Depends(get_session),
-):
-    """
-    Return daily ATL, CTL, TSB (training load) for the last `days` days.
-    """
-    now = _time.monotonic()
-    cached = _tload_cache.get(days)
-    if cached and now - cached["ts"] < _TLOAD_TTL:
-        return cached["data"]
-
+def get_training_load(session: Session, days: int = 90) -> list[dict]:
+    """Return daily ATL, CTL, TSB (training load) for the last `days` days."""
     tss_by_date = _build_tss_by_date(session)
     today = date.today()
     start = today - timedelta(days=days)
     loads = compute_training_loads(tss_by_date, start_date=start, end_date=today)
 
-    result = [
+    return [
         {
             "date": d.isoformat(),
             "ctl": round(v.ctl, 1),
@@ -134,12 +68,13 @@ def get_training_load(
         }
         for d, v in sorted(loads.items())
     ]
-    _tload_cache[days] = {"data": result, "ts": now}
-    return result
 
 
-@router.get("/vdot")
-def get_vdot(session: Session = Depends(get_session)):
+# ---------------------------------------------------------------------------
+# VDOT estimate + race predictions + pace zones
+# ---------------------------------------------------------------------------
+
+def get_vdot(session: Session) -> dict:
     """
     Estimate current VDOT from recent training runs using HR-adjusted method.
 
@@ -150,10 +85,6 @@ def get_vdot(session: Session = Depends(get_session)):
     Falls back to the raw Daniels formula (best performance) only when no
     HR data is available — this will underestimate VDOT for easy runs.
     """
-    now = _time.monotonic()
-    if _vdot_cache["data"] is not None and now - _vdot_cache["ts"] < _VDOT_TTL:
-        return _vdot_cache["data"]
-
     profile = session.get(UserProfile, 1) or UserProfile()
     hr_max = profile.hr_max
     hr_rest = profile.hr_rest
@@ -201,14 +132,10 @@ def get_vdot(session: Session = Depends(get_session)):
                     pass
 
     if best_vdot is None:
-        result = {"vdot": None, "based_on_activity_id": None, "method": method,
-                  "hr_max": hr_max, "hr_rest": hr_rest}
-        _vdot_cache["data"] = result
-        _vdot_cache["ts"] = now
-        return result
+        return {"vdot": None, "based_on_activity_id": None, "method": method,
+                "hr_max": hr_max, "hr_rest": hr_rest}
 
     zones = compute_pace_zones(best_vdot)
-    from app.services.analytics import predict_race_time_s
     predictions = {}
     for name, dist in [("5k", 5000), ("10k", 10000), ("half", 21097), ("marathon", 42195)]:
         try:
@@ -217,7 +144,7 @@ def get_vdot(session: Session = Depends(get_session)):
         except Exception:
             predictions[name] = None
 
-    result = {
+    return {
         "vdot": round(best_vdot, 1),
         "based_on_activity_id": best_act_id,
         "method": method,
@@ -234,10 +161,11 @@ def get_vdot(session: Session = Depends(get_session)):
             "repetition": round(zones.repetition),
         },
     }
-    _vdot_cache["data"] = result
-    _vdot_cache["ts"] = now
-    return result
 
+
+# ---------------------------------------------------------------------------
+# Personal bests (fastest real segment per distance)
+# ---------------------------------------------------------------------------
 
 def _find_fastest_segment(dps, target_m: float, gps_correction: float = 0.0):
     """
@@ -292,30 +220,15 @@ _PB_DISTANCES = [
     ("marathon", 42195.0),
 ]
 
-# Server-side TTL cache — personal bests are expensive to compute
-_pb_cache: dict = {"data": None, "ts": 0.0}
-_PB_TTL = 900  # 15 minutes
-
 _DpRow = namedtuple("_DpRow", ["distance_m", "timestamp"])
 
 
-def _invalidate_pb_cache() -> None:
-    """Call this whenever a new activity is added."""
-    _pb_cache["data"] = None
-
-
-@router.get("/personal-bests")
-def get_personal_bests(session: Session = Depends(get_session)):
+def get_personal_bests(session: Session) -> dict:
     """
     Fastest real segments for common distances (400 m → marathon).
 
-    Uses a single bulk query + two-pointer sliding window. Results cached
-    server-side for 5 minutes.
+    Uses a single bulk query + two-pointer sliding window.
     """
-    now = _time.monotonic()
-    if _pb_cache["data"] is not None and now - _pb_cache["ts"] < _PB_TTL:
-        return _pb_cache["data"]
-
     # Activity distances to skip short activities early
     act_dist = {a[0]: a[1] for a in session.exec(
         select(Activity.id, Activity.distance_m)
@@ -373,63 +286,4 @@ def get_personal_bests(session: Session = Depends(get_session)):
             for i, e in enumerate(entries)
         ] or None
 
-    _pb_cache["data"] = out
-    _pb_cache["ts"] = now
     return out
-
-
-@router.get("/activities/{activity_id}/analytics")
-def get_activity_analytics(
-    activity_id: int,
-    hr_rest: int = Query(50, ge=30, le=100),
-    hr_max: int = Query(190, ge=150, le=230),
-    session: Session = Depends(get_session),
-):
-    """
-    Per-activity analytics: VDOT estimate, TRIMP, hrTSS, pace zones,
-    and grade-adjusted pace summary.
-    """
-    act = session.get(Activity, activity_id)
-    if not act:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Activity not found")
-
-    # VDOT
-    vdot = None
-    zones = None
-    if act.distance_m >= 1000 and act.duration_s > 0:
-        try:
-            vdot = round(compute_vdot(act.distance_m, act.duration_s), 1)
-            zones_obj = compute_pace_zones(vdot)
-            zones = {
-                "easy_lo": round(zones_obj.easy_lo),
-                "easy_hi": round(zones_obj.easy_hi),
-                "marathon": round(zones_obj.marathon),
-                "threshold": round(zones_obj.threshold),
-                "interval": round(zones_obj.interval),
-                "repetition": round(zones_obj.repetition),
-            }
-        except ValueError:
-            pass
-
-    # TRIMP from datapoints
-    dps = session.exec(
-        select(DataPoint)
-        .where(DataPoint.activity_id == activity_id)
-        .order_by(DataPoint.timestamp)
-    ).all()
-
-    dp_dicts = [
-        {"heart_rate": dp.heart_rate, "timestamp": dp.timestamp}
-        for dp in dps
-    ]
-    trimp = round(compute_trimp(dp_dicts, hr_rest=hr_rest, hr_max=hr_max), 1)
-    hrtss = round(compute_hrtss(trimp), 1)
-
-    return {
-        "activity_id": activity_id,
-        "vdot": vdot,
-        "trimp": trimp,
-        "hrtss": hrtss,
-        "pace_zones_s_per_km": zones,
-    }

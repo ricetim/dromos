@@ -95,8 +95,5 @@ export const getSyncStatus = () =>
 export const triggerSync = () =>
   api.post("/sync/trigger").then((r) => r.data);
 
-export const getActivityAnalytics = (id: number) =>
-  api.get(`/stats/activities/${id}/analytics`).then((r) => r.data);
-
 export const getPhotos = (id: number) =>
   api.get(`/activities/${id}/photos`).then((r) => r.data);

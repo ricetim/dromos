@@ -1,13 +1,7 @@
 import shutil
-import time as _time
 import uuid
-from collections import defaultdict
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
-from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
@@ -23,169 +17,10 @@ from app.services.shoe_default import stamp_default_shoe
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
-# Server-side cache for the activities list (includes GPS tracks — expensive to build)
-_list_cache: dict = {"data": None, "ts": 0.0}
-_LIST_TTL = 300  # 5 minutes — activities only change on upload/delete
-
-
-def _invalidate_list_cache() -> None:
-    _list_cache["data"] = None
-
-
-def warm_cache(session: Session) -> None:
-    """Pre-populate the activities list cache. Called at startup."""
-    if _list_cache["data"] is not None:
-        return
-    try:
-        list_activities(session)
-    except Exception:
-        pass  # Don't crash startup if warmup fails
-
-
-class ActivitySummary(BaseModel):
-    id: int
-    source: str
-    external_id: Optional[str] = None
-    strava_id: Optional[str] = None
-    started_at: datetime
-    distance_m: float
-    duration_s: int
-    elevation_gain_m: float
-    elevation_loss_m: Optional[float] = None
-    avg_hr: Optional[int] = None
-    avg_pace_s_per_km: Optional[float] = None
-    sport_type: str
-    notes: Optional[str] = None
-    rpe: Optional[int] = None
-    name: Optional[str] = None
-    track: list[list[float]] = []
-
-
-def _downsample(points: list[list[float]], max_points: int = 150) -> list[list[float]]:
-    if len(points) <= max_points:
-        return points
-    step = len(points) / max_points
-    indices = {0, len(points) - 1}
-    indices.update(int(i * step) for i in range(1, max_points - 1))
-    return [points[i] for i in sorted(indices)]
-
-
-@router.get("", response_model=list[ActivitySummary])
-def list_activities(session: Session = Depends(get_session)):
-    now = _time.monotonic()
-    if _list_cache["data"] is not None and now - _list_cache["ts"] < _LIST_TTL:
-        return _list_cache["data"]
-
-    activities = session.exec(
-        select(Activity).order_by(Activity.started_at.desc())
-    ).all()
-
-    if not activities:
-        return []
-
-    activity_ids = [a.id for a in activities]
-
-    # Bulk fetch only lat/lon for all activities (avoids N+1)
-    gps_rows = session.exec(
-        select(DataPoint.activity_id, DataPoint.lat, DataPoint.lon)
-        .where(DataPoint.activity_id.in_(activity_ids))
-        .where(DataPoint.lat.is_not(None))
-        .where(DataPoint.lon.is_not(None))
-        .order_by(DataPoint.activity_id, DataPoint.timestamp)
-    ).all()
-
-    gps_by_activity: dict[int, list[list[float]]] = defaultdict(list)
-    for row in gps_rows:
-        gps_by_activity[row[0]].append([row[1], row[2]])
-
-    result = [
-        ActivitySummary(
-            id=a.id,
-            source=a.source,
-            external_id=a.external_id,
-            strava_id=a.strava_id,
-            started_at=a.started_at,
-            distance_m=a.distance_m,
-            duration_s=a.duration_s,
-            elevation_gain_m=a.elevation_gain_m,
-            avg_hr=a.avg_hr,
-            avg_pace_s_per_km=a.avg_pace_s_per_km,
-            sport_type=a.sport_type,
-            notes=a.notes,
-            rpe=a.rpe,
-            name=a.name,
-            track=_downsample(gps_by_activity.get(a.id, [])),
-        )
-        for a in activities
-    ]
-    _list_cache["data"] = result
-    _list_cache["ts"] = now
-    return result
-
-
-@router.get("/{activity_id}/full")
-def get_activity_full(activity_id: int, session: Session = Depends(get_session)):
-    """Combined endpoint: activity + laps + compact track in one request."""
-    act = session.get(Activity, activity_id)
-    if not act:
-        raise HTTPException(status_code=404, detail="Activity not found")
-    laps = session.exec(
-        select(Lap).where(Lap.activity_id == activity_id).order_by(Lap.lap_number)
-    ).all()
-    rows = session.exec(
-        select(DataPoint.lat, DataPoint.lon, DataPoint.speed_m_s)
-        .where(DataPoint.activity_id == activity_id)
-        .where(DataPoint.lat.is_not(None))
-        .where(DataPoint.lon.is_not(None))
-        .order_by(DataPoint.timestamp)
-    ).all()
-    track = [[r[0], r[1], r[2]] for r in rows]
-    return {"activity": act, "laps": laps, "track": track}
-
-
-@router.get("/{activity_id}", response_model=Activity)
-def get_activity(activity_id: int, session: Session = Depends(get_session)):
-    act = session.get(Activity, activity_id)
-    if not act:
-        raise HTTPException(status_code=404, detail="Activity not found")
-    return act
-
-
-@router.get("/{activity_id}/datapoints")
-def get_datapoints(activity_id: int, session: Session = Depends(get_session)):
-    if not session.get(Activity, activity_id):
-        raise HTTPException(status_code=404, detail="Activity not found")
-    return session.exec(
-        select(DataPoint)
-        .where(DataPoint.activity_id == activity_id)
-        .order_by(DataPoint.timestamp)
-    ).all()
-
-
-@router.get("/{activity_id}/laps")
-def get_laps(activity_id: int, session: Session = Depends(get_session)):
-    if not session.get(Activity, activity_id):
-        raise HTTPException(status_code=404, detail="Activity not found")
-    return session.exec(
-        select(Lap)
-        .where(Lap.activity_id == activity_id)
-        .order_by(Lap.lap_number)
-    ).all()
-
-
-@router.get("/{activity_id}/track")
-def get_track(activity_id: int, session: Session = Depends(get_session)):
-    """Compact GPS track: [[lat, lon, speed_m_s_or_null], ...] — fast-loading for map."""
-    if not session.get(Activity, activity_id):
-        raise HTTPException(status_code=404, detail="Activity not found")
-    rows = session.exec(
-        select(DataPoint.lat, DataPoint.lon, DataPoint.speed_m_s)
-        .where(DataPoint.activity_id == activity_id)
-        .where(DataPoint.lat.is_not(None))
-        .where(DataPoint.lon.is_not(None))
-        .order_by(DataPoint.timestamp)
-    ).all()
-    return [[r[0], r[1], r[2]] for r in rows]
+# Reads (list, detail, datapoints, track, laps) are served from precompiled
+# static JSON written by app.services.builder — nginx/Starlette serve those
+# files directly, so they never touch this router. The only live read still
+# needed is photos, fetched lazily by the activity detail page.
 
 
 @router.get("/{activity_id}/photos")
@@ -266,10 +101,6 @@ def upload_fit(
         session.commit()
         session.refresh(act)
 
-    _invalidate_list_cache()
-    from app.routers.stats import _invalidate_pb_cache, _invalidate_stats_cache
-    _invalidate_pb_cache()
-    _invalidate_stats_cache()
     background_tasks.add_task(bg_rebuild_after_upload, act.id)
     return act
 
@@ -285,10 +116,6 @@ def delete_activity(activity_id: int, background_tasks: BackgroundTasks, session
     session.exec(sa_delete(ActivityShoe).where(ActivityShoe.activity_id == activity_id))
     session.delete(act)
     session.commit()
-    _invalidate_list_cache()
-    from app.routers.stats import _invalidate_pb_cache, _invalidate_stats_cache
-    _invalidate_pb_cache()
-    _invalidate_stats_cache()
     background_tasks.add_task(bg_rebuild_after_delete, activity_id)
 
 
@@ -308,7 +135,6 @@ def update_activity(
     session.add(act)
     session.commit()
     session.refresh(act)
-    _invalidate_list_cache()
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     return act
 
@@ -349,7 +175,6 @@ def refresh_from_coros(
     session.add(act)
     session.commit()
     session.refresh(act)
-    _invalidate_list_cache()
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     return act
 
@@ -378,9 +203,6 @@ def update_activity_shoe(
         session.add(ActivityShoe(activity_id=activity_id, shoe_id=shoe_id))
 
     session.commit()
-    _invalidate_list_cache()
-    from app.routers.stats import _invalidate_stats_cache
-    _invalidate_stats_cache()
     _rebuild_shoes(session, STATIC_DIR)
     background_tasks.add_task(bg_rebuild_after_activity_update, activity_id)
     background_tasks.add_task(bg_rebuild_globals)
