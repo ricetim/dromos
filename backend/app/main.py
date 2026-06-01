@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="Domos", lifespan=lifespan)
+app = FastAPI(title="Dromos", lifespan=lifespan)
 
 # GZip first (outermost) so all responses — including CORS preflight — are compressed
 app.add_middleware(GZipMiddleware, minimum_size=1024)

@@ -1,7 +1,7 @@
 # Running Performance Metrics: Research & First Principles
 
 **Compiled:** 2026-03-04
-**Purpose:** Source documentation for Domos metric implementations. For each metric: original source, formula, implementation notes, and known limitations.
+**Purpose:** Source documentation for Dromos metric implementations. For each metric: original source, formula, implementation notes, and known limitations.
 
 ---
 

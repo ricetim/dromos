@@ -24,7 +24,7 @@ PROVIDERS = {
     "dark":     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
 }
 _TILE_HEADERS = {
-    "User-Agent": "Domos/1.0 (tile pre-fetcher)",
+    "User-Agent": "Dromos/1.0 (tile pre-fetcher)",
     "Accept": "image/png,image/*",
 }
 _PREFETCH_ZOOMS = range(12, 15)  # zooms 12-14; ~20-50 tiles per activity

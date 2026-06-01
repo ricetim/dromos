@@ -30,7 +30,7 @@ PROVIDERS = {
 }
 
 HEADERS = {
-    "User-Agent": "Domos/1.0 (personal running dashboard; tile caching proxy)",
+    "User-Agent": "Dromos/1.0 (personal running dashboard; tile caching proxy)",
     "Accept": "image/png,image/*",
 }
 

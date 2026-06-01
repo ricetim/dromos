@@ -170,8 +170,8 @@ Skip if you'd rather not churn the UI for cosmetic gain.
 
 After the new image is deployed on coruscant:
 
-1. `sqlite3 /home/tim/.docker_config/domos/domos.db "SELECT activity_id, COUNT(*) FROM activityshoe GROUP BY activity_id HAVING COUNT(*) > 1"` — should return zero rows.
-2. Open https://domos.timothyrice.org/activities/119 — detail view shows the *current* shoe (FWD VIA 2).
+1. `sqlite3 /home/tim/.docker_config/dromos/dromos.db "SELECT activity_id, COUNT(*) FROM activityshoe GROUP BY activity_id HAVING COUNT(*) > 1"` — should return zero rows.
+2. Open https://dromos.timothyrice.org/activities/119 — detail view shows the *current* shoe (FWD VIA 2).
 3. Open the Gear page — Altra Torin 8 total km should drop (lost the 8 double-counted activities); FWD VIA 2 total should be unchanged (it was already getting credit for them).
 4. Re-run Strava sync, then re-run again with a different gear assignment in Strava on a test activity. Confirm only one `ActivityShoe` row exists for that activity.
 

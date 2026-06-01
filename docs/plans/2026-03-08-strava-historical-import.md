@@ -224,8 +224,8 @@ git commit -m "feat: import historical Strava runs with laps, remove 50-cap, fil
 **Step 1: Rebuild backend image**
 
 ```bash
-cd /home/tim/projects/domos
-docker build -t domos-backend ./backend
+cd /home/tim/projects/dromos
+docker build -t dromos-backend ./backend
 ```
 
 **Step 2: Restart containers**

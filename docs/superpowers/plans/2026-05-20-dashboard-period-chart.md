@@ -110,7 +110,7 @@ def test_bucket_by_day_month_uses_day_of_month_labels(session):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_day_last_7_days_uses_weekday_labels tests/test_builder.py::test_bucket_by_day_month_uses_day_of_month_labels -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_day_last_7_days_uses_weekday_labels tests/test_builder.py::test_bucket_by_day_month_uses_day_of_month_labels -v
 ```
 
 Expected: `ImportError: cannot import name '_bucket_by_day'` — or the function doesn't exist yet.
@@ -167,7 +167,7 @@ Note: Python's `date.weekday()` returns 0=Monday, so `_WEEKDAY_SHORT[0] = "Mon"`
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_day_last_7_days_uses_weekday_labels tests/test_builder.py::test_bucket_by_day_month_uses_day_of_month_labels -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_day_last_7_days_uses_weekday_labels tests/test_builder.py::test_bucket_by_day_month_uses_day_of_month_labels -v
 ```
 
 Expected: 2 passed.
@@ -228,7 +228,7 @@ def test_bucket_by_week_sun_start_2026(session):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_week_sun_start_2026 -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_week_sun_start_2026 -v
 ```
 
 Expected: `ImportError: cannot import name '_bucket_by_week_sun_start'`.
@@ -281,7 +281,7 @@ def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_week_sun_start_2026 -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_bucket_by_week_sun_start_2026 -v
 ```
 
 Expected: 1 passed.
@@ -359,7 +359,7 @@ def test_compute_period_data_year_53_weeks_2026(session):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_compute_period_data_last_7_days_sum_matches_summary tests/test_builder.py::test_compute_period_data_month_uses_calendar_boundaries tests/test_builder.py::test_compute_period_data_year_53_weeks_2026 -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_compute_period_data_last_7_days_sum_matches_summary tests/test_builder.py::test_compute_period_data_month_uses_calendar_boundaries tests/test_builder.py::test_compute_period_data_year_53_weeks_2026 -v
 ```
 
 Expected: `ImportError: cannot import name '_compute_period_data'`.
@@ -431,7 +431,7 @@ def _compute_period_data(acts, period: str, today: date) -> tuple[dict, dict]:
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py -v -k "period_data or bucket_by"
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py -v -k "period_data or bucket_by"
 ```
 
 Expected: 6 passed (3 bucket + 3 period_data).
@@ -495,7 +495,7 @@ def test_rebuild_globals_writes_volume_field(session, tmp_path, monkeypatch):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py::test_rebuild_globals_writes_volume_field -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py::test_rebuild_globals_writes_volume_field -v
 ```
 
 Expected: KeyError on `data["volume"]` or similar — the current `_rebuild_dashboard` only writes `summary` with old period keys.
@@ -541,7 +541,7 @@ Note: we no longer call `get_summary` from the router — its server-side cache 
 - [ ] **Step 4: Run all builder tests**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest tests/test_builder.py -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest tests/test_builder.py -v
 ```
 
 Expected: all green, including the new dashboard shape test.
@@ -602,7 +602,7 @@ In `backend/app/routers/stats.py`:
 - [ ] **Step 3: Run all backend tests to ensure no regression**
 
 ```bash
-cd /home/tim/projects/domos/backend && python3 -m pytest -v
+cd /home/tim/projects/dromos/backend && python3 -m pytest -v
 ```
 
 Expected: all green.
@@ -641,7 +641,7 @@ export const getVolumeBuckets = (period: Period) =>
 - [ ] **Step 2: Verify the file compiles (TypeScript)**
 
 ```bash
-cd /home/tim/projects/domos/frontend && npx tsc --noEmit -p tsconfig.json
+cd /home/tim/projects/dromos/frontend && npx tsc --noEmit -p tsconfig.json
 ```
 
 Expected: no errors related to `client.ts`. There may be errors in `Dashboard.tsx` / `App.tsx` if they pass old period strings — those are addressed in Tasks 7 and 8.
@@ -747,7 +747,7 @@ The Dashboard's `useState<Period>("week")` default needs updating to `useState<P
 - [ ] **Step 7: TypeScript check**
 
 ```bash
-cd /home/tim/projects/domos/frontend && npx tsc --noEmit -p tsconfig.json
+cd /home/tim/projects/dromos/frontend && npx tsc --noEmit -p tsconfig.json
 ```
 
 Expected: clean.
@@ -793,7 +793,7 @@ Add `getVolumeBuckets` to the import on line 6.
 - [ ] **Step 2: TypeScript check**
 
 ```bash
-cd /home/tim/projects/domos/frontend && npx tsc --noEmit -p tsconfig.json
+cd /home/tim/projects/dromos/frontend && npx tsc --noEmit -p tsconfig.json
 ```
 
 Expected: clean.
@@ -822,14 +822,14 @@ pgrep -f "uvicorn app.main" | xargs -r kill
 - [ ] **Step 2: Restart uvicorn detached from this session**
 
 ```bash
-cd /home/tim/projects/domos/backend && setsid nohup ../.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/domos-backend.log 2>&1 < /dev/null &
+cd /home/tim/projects/dromos/backend && setsid nohup ../.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/dromos-backend.log 2>&1 < /dev/null &
 disown
 ```
 
 - [ ] **Step 3: Wait ~3 seconds then verify the rebuild fired and the new field is present**
 
 ```bash
-sleep 3 && python3 -c "import json; d=json.load(open('/home/tim/projects/domos/data-dev/static/dashboard.json')); print('summary keys:', list(d.get('summary',{}).keys())); print('volume keys:', list(d.get('volume',{}).keys())); print('month buckets:', len(d['volume']['month']['buckets'])); print('year buckets:', len(d['volume']['year']['buckets']))"
+sleep 3 && python3 -c "import json; d=json.load(open('/home/tim/projects/dromos/data-dev/static/dashboard.json')); print('summary keys:', list(d.get('summary',{}).keys())); print('volume keys:', list(d.get('volume',{}).keys())); print('month buckets:', len(d['volume']['month']['buckets'])); print('year buckets:', len(d['volume']['year']['buckets']))"
 ```
 
 Expected output:
@@ -845,7 +845,7 @@ year buckets: 52     (or 53)
 - [ ] **Step 4: Verify the StatCards-vs-chart invariant in the static file**
 
 ```bash
-python3 -c "import json; d=json.load(open('/home/tim/projects/domos/data-dev/static/dashboard.json'));
+python3 -c "import json; d=json.load(open('/home/tim/projects/dromos/data-dev/static/dashboard.json'));
 for p in ('last_7_days','month','year'):
     s=d['summary'][p]['total_distance_km']; v=d['volume'][p]['total_km']
     assert s==v, f'{p}: summary={s} volume={v}'; print(f'{p} OK: {s} km')"
@@ -860,7 +860,7 @@ Expected: three lines, no `AssertionError`.
 - [ ] **Step 1: Ensure vite dev server is running**
 
 ```bash
-pgrep -f "vite" >/dev/null || (cd /home/tim/projects/domos/frontend && setsid nohup npm run dev -- --host > /tmp/domos-vite.log 2>&1 < /dev/null & disown)
+pgrep -f "vite" >/dev/null || (cd /home/tim/projects/dromos/frontend && setsid nohup npm run dev -- --host > /tmp/dromos-vite.log 2>&1 < /dev/null & disown)
 ```
 
 - [ ] **Step 2: Manual smoke test (open browser)**
@@ -875,7 +875,7 @@ Open `http://192.168.0.233:5173/` and verify:
 - Hover tooltip shows `<distance> km` (or `mi` if you toggle units).
 - Imperial unit toggle continues to flip both StatCards and chart values.
 
-- [ ] **Step 3: Note any unexpected behavior in `/tmp/domos-verify.log`** (no actual command needed — just record findings before committing)
+- [ ] **Step 3: Note any unexpected behavior in `/tmp/dromos-verify.log`** (no actual command needed — just record findings before committing)
 
 ---
 
@@ -886,7 +886,7 @@ Open `http://192.168.0.233:5173/` and verify:
 - [ ] **Step 1: Confirm working tree clean except for any deliberate WIP**
 
 ```bash
-cd /home/tim/projects/domos && git status
+cd /home/tim/projects/dromos && git status
 ```
 
 - [ ] **Step 2: Push to origin/master**
@@ -902,7 +902,7 @@ git push origin master
 - [ ] **Step 1: Build the docker image locally**
 
 ```bash
-cd /home/tim/projects/domos && docker build -f Dockerfile -t ricetim/domos:latest .
+cd /home/tim/projects/dromos && docker build -f Dockerfile -t ricetim/dromos:latest .
 ```
 
 (If the project has a separate frontend+backend Dockerfile flow, follow whichever is captured in CLAUDE.md / recent commit messages — the repo memory notes the project ships as a single-image deployment.)
@@ -910,7 +910,7 @@ cd /home/tim/projects/domos && docker build -f Dockerfile -t ricetim/domos:lates
 - [ ] **Step 2: Push to DockerHub**
 
 ```bash
-docker push ricetim/domos:latest
+docker push ricetim/dromos:latest
 ```
 
 - [ ] **Step 3: Deploy to coruscant**
@@ -918,14 +918,14 @@ docker push ricetim/domos:latest
 The user runs this on their server:
 
 ```bash
-ssh coruscant 'cd ~/.docker_config/domos && docker compose pull && docker compose down && docker compose up -d'
+ssh coruscant 'cd ~/.docker_config/dromos && docker compose pull && docker compose down && docker compose up -d'
 ```
 
 Per project memory: **never use `docker compose restart`** — image digests get pinned and the new image isn't picked up. Always `down && up`.
 
 - [ ] **Step 4: Smoke-test the production URL**
 
-Open `http://domos.timothyrice.org/` and run through the same checklist as Task 10 Step 2.
+Open `http://dromos.timothyrice.org/` and run through the same checklist as Task 10 Step 2.
 
 ---
 
@@ -935,7 +935,7 @@ If the new dashboard.json shape causes issues in production, the safest rollback
 
 ```bash
 # On coruscant
-docker tag ricetim/domos:prev ricetim/domos:latest
+docker tag ricetim/dromos:prev ricetim/dromos:latest
 docker compose down && docker compose up -d
 ```
 

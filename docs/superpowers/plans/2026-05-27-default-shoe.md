@@ -1231,7 +1231,7 @@ Upload a second `.fit`. Verify the new activity has **no** shoe assigned.
 
 - [ ] **Step 7: Update MEMORY.md**
 
-Edit `/home/tim/.claude/projects/-home-tim-projects-domos/memory/MEMORY.md`. Update the line under "Known Code Patterns":
+Edit `/home/tim/.claude/projects/-home-tim-projects-dromos/memory/MEMORY.md`. Update the line under "Known Code Patterns":
 - Replace `Strava integration: only photos currently; gear/shoe sync not yet implemented (plan in requirements.md)` with:
   `Strava integration: photos only. Shoe assignment is in-app via a "default shoe" on the Gear page (UserProfile.default_shoe_id); stamped at ingest in Coros/Strava-stream/manual-upload paths.`
 
@@ -1242,7 +1242,7 @@ Edit `requirements.md`. In the 2026-03-06 feature backlog, change item #1 from "
 - [ ] **Step 9: Final commit**
 
 ```bash
-git add requirements.md /home/tim/.claude/projects/-home-tim-projects-domos/memory/MEMORY.md
+git add requirements.md /home/tim/.claude/projects/-home-tim-projects-dromos/memory/MEMORY.md
 git commit -m "docs: record default-shoe replacement of Strava gear sync"
 ```
 
