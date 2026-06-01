@@ -6,28 +6,14 @@ files in STATIC_DIR are regenerated atomically. nginx serves these
 files directly, so reads never touch Python.
 """
 import json
-import math
 import os
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 from pathlib import Path
 
-import httpx
 from sqlmodel import Session, select, func
 
 STATIC_DIR = Path(os.environ.get("DATA_DIR", "/data")) / "static"
-TILE_DIR = Path(os.environ.get("DATA_DIR", "/data")) / "tiles"
-
-PROVIDERS = {
-    "light":    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-    "standard": "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    "dark":     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-}
-_TILE_HEADERS = {
-    "User-Agent": "Dromos/1.0 (tile pre-fetcher)",
-    "Accept": "image/png,image/*",
-}
-_PREFETCH_ZOOMS = range(12, 15)  # zooms 12-14; ~20-50 tiles per activity
 
 
 # ---------------------------------------------------------------------------
@@ -108,15 +94,6 @@ def _thumb_track(points: list) -> list:
         [round(lat, _COORD_PREC), round(lon, _COORD_PREC)]
         for lat, lon in _downsample(points, _THUMB_TRACK_POINTS)
     ]
-
-
-def _tile_xy(lat: float, lon: float, zoom: int) -> tuple[int, int]:
-    """Convert lat/lon to OSM tile coordinates at the given zoom level."""
-    lat_r = math.radians(lat)
-    n = 2 ** zoom
-    x = int((lon + 180.0) / 360.0 * n)
-    y = int((1.0 - math.asinh(math.tan(lat_r)) / math.pi) / 2.0 * n)
-    return x, y
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -264,9 +241,8 @@ def rebuild_activity(
     activity_id: int,
     session: Session,
     static_dir: Path = STATIC_DIR,
-    tile_dir: Path = TILE_DIR,
 ) -> None:
-    """Write activity-{id}.json, datapoints-{id}.json, and pre-fetch map tiles."""
+    """Write activity-{id}.json and datapoints-{id}.json."""
     from app.models import Activity, ActivityShoe, DataPoint, Lap, Shoe
 
     act = session.get(Activity, activity_id)
@@ -309,38 +285,6 @@ def rebuild_activity(
         static_dir / f"datapoints-{activity_id}.json",
         [dp.model_dump() for dp in _downsample(dps, _CHART_DATAPOINTS)],
     )
-
-    if gps_rows:
-        _prefetch_tiles(gps_rows, tile_dir)
-
-
-def _prefetch_tiles(gps_rows: list, tile_dir: Path) -> None:
-    """Best-effort: fetch and cache map tiles for a GPS track's bounding box."""
-    lats = [r[0] for r in gps_rows]
-    lons = [r[1] for r in gps_rows]
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
-
-    try:
-        with httpx.Client(timeout=8) as client:
-            for zoom in _PREFETCH_ZOOMS:
-                x_min, y_max = _tile_xy(min_lat, min_lon, zoom)
-                x_max, y_min = _tile_xy(max_lat, max_lon, zoom)
-                for x in range(x_min, x_max + 1):
-                    for y in range(y_min, y_max + 1):
-                        for provider, url_tpl in PROVIDERS.items():
-                            cache_path = tile_dir / provider / str(zoom) / str(x) / f"{y}.png"
-                            if cache_path.exists():
-                                continue
-                            try:
-                                resp = client.get(url_tpl.format(z=zoom, x=x, y=y), headers=_TILE_HEADERS)
-                                if resp.status_code == 200:
-                                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                                    cache_path.write_bytes(resp.content)
-                            except httpx.RequestError:
-                                pass
-    except Exception:
-        pass  # tile pre-fetch is best-effort; never block a rebuild
 
 
 # ---------------------------------------------------------------------------
@@ -613,13 +557,12 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
 def rebuild_all(
     session: Session,
     static_dir: Path = STATIC_DIR,
-    tile_dir: Path = TILE_DIR,
 ) -> None:
     """Rebuild every static file. Called on first startup or after Coros sync."""
     from app.models import Activity
     rebuild_globals(session, static_dir)
     for act in session.exec(select(Activity)).all():
-        rebuild_activity(act.id, session, static_dir, tile_dir)
+        rebuild_activity(act.id, session, static_dir)
     (static_dir / ".schema_version").write_text(STATIC_SCHEMA_VERSION)
 
 

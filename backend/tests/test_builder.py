@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import Session
 
 from app.models import Activity, DataPoint, Goal, Shoe
-from app.services.builder import rebuild_activity, rebuild_globals, rebuild_all, _tile_xy
+from app.services.builder import rebuild_activity, rebuild_globals, rebuild_all
 from app.services.builder import _compute_eddington, _compute_yearly
 
 
@@ -35,13 +35,6 @@ def act(session):
     session.commit()
     session.refresh(a)
     return a
-
-
-def test_tile_xy_known_value():
-    # San Francisco at zoom 13: tile (1310, 3166)
-    x, y = _tile_xy(37.7749, -122.4194, 13)
-    assert x == 1310
-    assert y == 3166
 
 
 def test_rebuild_activity_writes_files(session, act, tmp_path):
@@ -136,7 +129,7 @@ def test_yearly_groups_by_week():
 
 
 def test_rebuild_all(session, act, tmp_path):
-    rebuild_all(session, static_dir=tmp_path, tile_dir=tmp_path / "tiles")
+    rebuild_all(session, static_dir=tmp_path)
 
     assert (tmp_path / "activities.json").exists()
     assert (tmp_path / f"activity-{act.id}.json").exists()
