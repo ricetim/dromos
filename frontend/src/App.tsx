@@ -76,7 +76,7 @@ function Nav() {
         {/* Left: brand */}
         <div className="flex-1">
           <Link to="/" className="font-bold text-lg text-white hover:text-blue-100 transition-colors">
-            RunScribe
+            Domos
           </Link>
         </div>
 

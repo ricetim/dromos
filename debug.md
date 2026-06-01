@@ -1,4 +1,4 @@
-# RunScribe Debug Log
+# Domos Debug Log
 
 All debugging notes, build issues, and fixes encountered during implementation.
 
@@ -92,7 +92,7 @@ Research complete — see `docs/running_metrics_research.md`.
 
 ### Books to procure (flagged by research agent)
 
-These sources contain formulas/methodology used in RunScribe's analytics engine. The user should obtain them:
+These sources contain formulas/methodology used in Domos's analytics engine. The user should obtain them:
 
 | Book | Author(s) | Relevance |
 |------|-----------|-----------|

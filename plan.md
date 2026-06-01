@@ -1,4 +1,4 @@
-# RunScribe Implementation Plan
+# Domos Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -13,7 +13,7 @@
 ## Project Structure
 
 ```
-runscribe/
+domos/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
@@ -103,7 +103,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.backends.legacy:build"
 
 [project]
-name = "runscribe-backend"
+name = "domos-backend"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -136,7 +136,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data" / "fit_files")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = f"sqlite:///{Path(os.getenv('DATA_DIR', str(BASE_DIR / 'data')))}/runscribe.db"
+DATABASE_URL = f"sqlite:///{Path(os.getenv('DATA_DIR', str(BASE_DIR / 'data')))}/domos.db"
 
 STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID", "")
 STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET", "")
@@ -169,7 +169,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_db_and_tables
 
-app = FastAPI(title="RunScribe")
+app = FastAPI(title="Domos")
 
 app.add_middleware(
     CORSMiddleware,

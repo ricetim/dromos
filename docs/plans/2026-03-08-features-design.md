@@ -1,4 +1,4 @@
-# RunScribe Feature Design — 2026-03-08
+# Domos Feature Design — 2026-03-08
 
 ## Features
 1. Weather data per activity

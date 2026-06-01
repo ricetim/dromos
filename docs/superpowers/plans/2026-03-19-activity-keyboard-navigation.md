@@ -98,7 +98,7 @@ useEffect(() => {
 - [ ] **Step 5: Build to verify no TypeScript errors**
 
 ```bash
-cd /home/tim/projects/runscribe/frontend && npm run build 2>&1 | grep -E "^.*error TS" | head -20
+cd /home/tim/projects/domos/frontend && npm run build 2>&1 | grep -E "^.*error TS" | head -20
 ```
 
 Expected: no output (zero TypeScript errors)
@@ -116,7 +116,7 @@ Expected: no output (zero TypeScript errors)
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /home/tim/projects/runscribe && git add frontend/src/pages/ActivityDetail.tsx && git commit -m "feat: arrow key navigation between activities on detail page
+cd /home/tim/projects/domos && git add frontend/src/pages/ActivityDetail.tsx && git commit -m "feat: arrow key navigation between activities on detail page
 
 ArrowRight → older activity, ArrowLeft → newer. Skips when an input
 element has focus to avoid conflicts with the shoe dropdown.
@@ -133,7 +133,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 - [ ] **Step 1: Build**
 
 ```bash
-cd /home/tim/projects/runscribe && docker compose build
+cd /home/tim/projects/domos && docker compose build
 ```
 
 - [ ] **Step 2: Push**
@@ -145,5 +145,5 @@ docker compose push
 - [ ] **Step 3: Deploy on coruscant**
 
 ```bash
-sudo docker compose pull && sudo docker compose up -d runscribe
+sudo docker compose pull && sudo docker compose up -d domos
 ```

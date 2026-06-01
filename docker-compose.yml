@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    image: ricetim/runscribe:latest
+    image: ricetim/domos:latest
     ports:
       - "80:8000"
     volumes:

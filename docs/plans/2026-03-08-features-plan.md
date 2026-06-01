@@ -994,7 +994,7 @@ Expected: JSON with `eddington.current_e` (integer) and `yearly.years` keys pres
 **Step 4: Run all backend tests**
 
 ```bash
-docker exec runscribe-backend-1 python3 -m pytest /app/tests/ -v 2>&1 | tail -30
+docker exec domos-backend-1 python3 -m pytest /app/tests/ -v 2>&1 | tail -30
 ```
 Expected: all pass.
 

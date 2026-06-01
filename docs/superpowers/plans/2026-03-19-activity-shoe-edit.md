@@ -338,7 +338,7 @@ docker compose push
 
 On coruscant:
 ```bash
-cd ~/.docker_config && docker compose pull && docker compose up -d runscribe_backend runscribe_frontend
+cd ~/.docker_config && docker compose pull && docker compose up -d domos_backend domos_frontend
 ```
 
 - [ ] **Step 4: Manual smoke test**

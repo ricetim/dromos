@@ -6,7 +6,7 @@
 
 ## Problem
 
-Today, shoes are linked to activities only via Strava's gear field — synced inside `_sync_strava_activities`. This requires Strava bookkeeping outside RunScribe, and it doesn't help with activities that arrive from Coros sync or direct `.fit` upload. We want shoe attribution to be a first-class, in-app concern with a simple default-shoe model, and to retire the Strava-driven path entirely.
+Today, shoes are linked to activities only via Strava's gear field — synced inside `_sync_strava_activities`. This requires Strava bookkeeping outside Domos, and it doesn't help with activities that arrive from Coros sync or direct `.fit` upload. We want shoe attribution to be a first-class, in-app concern with a simple default-shoe model, and to retire the Strava-driven path entirely.
 
 ## Goals
 

@@ -1,8 +1,8 @@
-# RunScribe — High-Level Design
+# Domos — High-Level Design
 
 ## Overview
 
-RunScribe is a personal running fitness dashboard for analyzing Coros Pace 4 workout data.
+Domos is a personal running fitness dashboard for analyzing Coros Pace 4 workout data.
 It ingests `.fit` files (directly from Coros, Strava, Runalyze export, or manual upload),
 computes Runalyze-style running statistics, and presents them in a rich, interactive web UI —
 including maps, charts, GPS-tagged photo pins, gear tracking, goal progress, and auto-generated

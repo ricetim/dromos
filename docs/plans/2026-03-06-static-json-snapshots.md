@@ -129,7 +129,7 @@ def test_rebuild_all(session, act, tmp_path):
 ### Step 2: Run tests to verify they fail
 
 ```bash
-cd /home/tim/projects/runscribe/backend
+cd /home/tim/projects/domos/backend
 python3 -m pytest tests/test_builder.py -v 2>&1 | head -30
 ```
 
@@ -165,7 +165,7 @@ PROVIDERS = {
     "dark":     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
 }
 _TILE_HEADERS = {
-    "User-Agent": "RunScribe/1.0 (tile pre-fetcher)",
+    "User-Agent": "Domos/1.0 (tile pre-fetcher)",
     "Accept": "image/png,image/*",
 }
 _PREFETCH_ZOOMS = range(12, 15)  # zooms 12–14; ~20–50 tiles per activity
@@ -481,7 +481,7 @@ def bg_rebuild_all() -> None:
 ### Step 4: Run tests to verify they pass
 
 ```bash
-cd /home/tim/projects/runscribe/backend
+cd /home/tim/projects/domos/backend
 python3 -m pytest tests/test_builder.py -v
 ```
 
@@ -498,7 +498,7 @@ Expected: all previously passing tests still pass.
 ### Step 6: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add backend/app/services/builder.py backend/tests/test_builder.py
 git commit -m "feat: add static JSON snapshot builder service"
 ```
@@ -627,7 +627,7 @@ def trigger(bg: BackgroundTasks, session: Session = Depends(get_session)):
 ### Step 6: Run full test suite
 
 ```bash
-cd /home/tim/projects/runscribe/backend
+cd /home/tim/projects/domos/backend
 python3 -m pytest -v 2>&1 | tail -20
 ```
 
@@ -636,7 +636,7 @@ Expected: all tests pass (background tasks run in TestClient but builder writes 
 ### Step 7: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add backend/app/routers/activities.py backend/app/routers/goals.py \
         backend/app/routers/shoes.py backend/app/routers/plans.py \
         backend/app/routers/sync.py
@@ -684,14 +684,14 @@ threading.Thread(target=_startup_rebuild, daemon=True).start()
 ### Step 2: Run the test suite to confirm no regressions
 
 ```bash
-cd /home/tim/projects/runscribe/backend
+cd /home/tim/projects/domos/backend
 python3 -m pytest -v 2>&1 | tail -20
 ```
 
 ### Step 3: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add backend/app/main.py
 git commit -m "feat: startup rebuild when static files are absent"
 ```
@@ -722,7 +722,7 @@ The `no-cache` header means the browser sends a conditional GET (ETag/If-Modifie
 ### Step 2: Verify the nginx config is valid
 
 ```bash
-docker run --rm -v /home/tim/projects/runscribe/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro nginx:alpine nginx -t
+docker run --rm -v /home/tim/projects/domos/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro nginx:alpine nginx -t
 ```
 
 Expected: `nginx: configuration file /etc/nginx/nginx.conf test is successful`
@@ -730,7 +730,7 @@ Expected: `nginx: configuration file /etc/nginx/nginx.conf test is successful`
 ### Step 3: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add frontend/nginx.conf
 git commit -m "feat: nginx serves /static/ JSON snapshots from /data/static/"
 ```
@@ -773,7 +773,7 @@ The `./data:/data` volume is already present on the backend service; adding it t
 ### Step 2: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add docker-compose.yml
 git commit -m "feat: mount /data volume in frontend container for static file serving"
 ```
@@ -897,7 +897,7 @@ export const getPhotos = (id: number) =>
 Since static files only change after explicit writes, set `staleTime: Infinity` in any `useQuery` call that reads from static. Grep for existing staleTime settings:
 
 ```bash
-grep -rn "staleTime" /home/tim/projects/runscribe/frontend/src/
+grep -rn "staleTime" /home/tim/projects/domos/frontend/src/
 ```
 
 The existing `staleTime: 5 * 60_000` and `staleTime: 60_000` values can be updated to `staleTime: Infinity` for all static reads. This makes React Query never refetch in the background — data updates only after a mutation triggers `invalidateQueries`.
@@ -905,7 +905,7 @@ The existing `staleTime: 5 * 60_000` and `staleTime: 60_000` values can be updat
 ### Step 3: Check the TypeScript build passes
 
 ```bash
-cd /home/tim/projects/runscribe/frontend
+cd /home/tim/projects/domos/frontend
 npm run build 2>&1 | tail -20
 ```
 
@@ -914,7 +914,7 @@ Expected: build succeeds with no TypeScript errors.
 ### Step 4: Commit
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add frontend/src/api/client.ts
 git commit -m "feat: frontend reads from /static/ JSON snapshots instead of live API"
 ```
@@ -926,9 +926,9 @@ git commit -m "feat: frontend reads from /static/ JSON snapshots instead of live
 ### Step 1: Build both Docker images
 
 ```bash
-cd /home/tim/projects/runscribe
-docker build -t runscribe-backend ./backend
-docker build -t runscribe-frontend ./frontend
+cd /home/tim/projects/domos
+docker build -t domos-backend ./backend
+docker build -t domos-frontend ./frontend
 ```
 
 Expected: both builds succeed with no errors.
@@ -943,7 +943,7 @@ docker compose down && docker compose up -d
 
 ```bash
 sleep 5  # give backend a moment to run startup rebuild
-ls -lh /home/tim/projects/runscribe/data/static/
+ls -lh /home/tim/projects/domos/data/static/
 ```
 
 Expected: `activities.json`, `dashboard.json`, `goals.json`, `shoes.json`, `plans.json` present.
@@ -961,7 +961,7 @@ Expected: `HTTP/1.1 200 OK` with `Content-Type: application/json`.
 Upload a `.fit` file via the UI (or curl), wait 3 seconds, then verify `activities.json` updated:
 
 ```bash
-stat /home/tim/projects/runscribe/data/static/activities.json
+stat /home/tim/projects/domos/data/static/activities.json
 ```
 
 Timestamp should be within the last few seconds.
@@ -969,7 +969,7 @@ Timestamp should be within the last few seconds.
 ### Step 6: Run the backend test suite one final time
 
 ```bash
-cd /home/tim/projects/runscribe/backend
+cd /home/tim/projects/domos/backend
 python3 -m pytest -v 2>&1 | tail -10
 ```
 
@@ -978,7 +978,7 @@ Expected: all 58+ tests pass.
 ### Step 7: Final commit if any adjustments were needed
 
 ```bash
-cd /home/tim/projects/runscribe
+cd /home/tim/projects/domos
 git add -p  # stage any fixup changes
 git commit -m "fix: end-to-end verification adjustments"
 ```

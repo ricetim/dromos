@@ -197,7 +197,7 @@ python3 -m pytest backend/ -x -q
 
 Expected: 61 passed (was 58; +3 new).
 
-If you see `PermissionError: [Errno 13] Permission denied: '/data'`: that's a pre-existing environment issue when `app.main` is imported outside Docker. The `tiles.py` import tries to `mkdir /data`. Set `DATA_DIR=/tmp/runscribe-test python3 -m pytest …` to work around it locally.
+If you see `PermissionError: [Errno 13] Permission denied: '/data'`: that's a pre-existing environment issue when `app.main` is imported outside Docker. The `tiles.py` import tries to `mkdir /data`. Set `DATA_DIR=/tmp/domos-test python3 -m pytest …` to work around it locally.
 
 - [ ] **Step 6: Commit**
 
