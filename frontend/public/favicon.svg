@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="8" fill="#2563eb"/>
-  <text x="16" y="16" fill="#ffffff"
-        font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-        font-size="22" font-weight="700"
-        text-anchor="middle" dominant-baseline="central">δ</text>
+  <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="16" cy="19.6" r="6.2"/>
+    <path d="M16 13.4 C 14.8 9.4, 17.8 6.5, 21.2 7.8"/>
+  </g>
 </svg>
