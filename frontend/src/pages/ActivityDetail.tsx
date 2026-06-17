@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivity, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros, deleteActivity } from "../api/client";
@@ -8,6 +8,7 @@ import { formatDateLong, formatTime } from "../utils/dates";
 import ActivityMap, { ActivityMapHandle } from "../components/ActivityMap";
 import ActivityCharts from "../components/ActivityCharts";
 import PhotoGallery from "../components/PhotoGallery";
+import { PaceFraction } from "../components/PaceFraction";
 
 interface Lap {
   id: number;
@@ -68,7 +69,7 @@ function WeatherBanner({ activity }: { activity: Activity }) {
   );
 }
 
-function StatCell({ label, value, sub, valueColor }: { label: string; value: string; sub?: string; valueColor?: string }) {
+function StatCell({ label, value, sub, valueColor }: { label: string; value: ReactNode; sub?: string; valueColor?: string }) {
   return (
     <div className="flex flex-col items-center px-4 first:pl-0 last:pr-0 border-l first:border-l-0 border-gray-200">
       <span className={`text-xl font-bold tabular-nums leading-tight ${valueColor ?? "text-gray-900"}`}>{value}</span>
@@ -134,7 +135,6 @@ function LapTable({
   activeLap: number | null;
   onLapClick: (lap: Lap) => void;
 }) {
-  const { fmtPace } = useUnits();
   if (!laps.length) return null;
 
   return (
@@ -164,7 +164,7 @@ function LapTable({
                   {formatDuration(Math.round(lap.duration_s))}
                 </td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
-                  {lap.avg_pace_s_per_km ? fmtPace(lap.avg_pace_s_per_km) : "—"}
+                  <PaceFraction sPerKm={lap.avg_pace_s_per_km} />
                 </td>
               </tr>
             );
@@ -330,7 +330,7 @@ export default function ActivityDetail() {
   const [brushRange, setBrushRange] = useState<[number, number] | null>(null);
   const [activeLap, setActiveLap] = useState<number | null>(null);
   const mapRef = useRef<ActivityMapHandle>(null);
-  const { fmtDist, fmtPace, fmtElev } = useUnits();
+  const { fmtDist, fmtElev } = useUnits();
 
   // Combined endpoint: activity + laps + track in one shot
   const { data: full, isLoading: fullLoading } = useQuery<{
@@ -623,7 +623,7 @@ export default function ActivityDetail() {
         <div className="flex items-start gap-0 px-5 py-3 flex-wrap">
           <StatCell label="Distance" value={fmtDist(act.distance_m)} />
           <StatCell label="Time" value={formatDuration(act.duration_s)} />
-          <StatCell label="Avg Pace" value={fmtPace(act.avg_pace_s_per_km)} />
+          <StatCell label="Avg Pace" value={<PaceFraction sPerKm={act.avg_pace_s_per_km} className="text-base" />} />
           <div className="flex flex-col items-center px-4 first:pl-0 last:pr-0 border-l first:border-l-0 border-gray-200">
             <div className="flex flex-col items-center leading-tight tabular-nums">
               <span className="text-xl font-bold text-green-600">+{fmtElev(act.elevation_gain_m)}</span>

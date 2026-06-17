@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
@@ -9,6 +9,7 @@ import { useUnits } from "../contexts/UnitsContext";
 import { formatDateMonthDay, formatDateLong } from "../utils/dates";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
+import { PaceFraction } from "../components/PaceFraction";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ function StatCard({
   sub,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   sub?: string;
 }) {
   return (
@@ -185,7 +186,7 @@ function formatWorkoutName(sportType: string, name?: string | null): string {
 }
 
 function ActivityRow({ act }: { act: Activity }) {
-  const { fmtDist, fmtPace } = useUnits();
+  const { fmtDist } = useUnits();
   const qc = useQueryClient();
   return (
     <Link
@@ -223,7 +224,7 @@ function ActivityRow({ act }: { act: Activity }) {
           <div className="text-xs text-gray-400">time</div>
         </div>
         <div>
-          <div className="font-semibold text-gray-900">{fmtPace(act.avg_pace_s_per_km)}</div>
+          <PaceFraction sPerKm={act.avg_pace_s_per_km} className="font-semibold text-gray-900" />
           <div className="text-xs text-gray-400">pace</div>
         </div>
       </div>
@@ -234,7 +235,7 @@ function ActivityRow({ act }: { act: Activity }) {
 // ── featured (most recent) activity ──────────────────────────────────────────
 
 function FeaturedActivity({ act }: { act: Activity }) {
-  const { fmtDist, fmtPace } = useUnits();
+  const { fmtDist } = useUnits();
   return (
     <Link
       to={`/activities/${act.id}`}
@@ -266,7 +267,7 @@ function FeaturedActivity({ act }: { act: Activity }) {
               <div className="text-xs text-gray-400">time</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-800">{fmtPace(act.avg_pace_s_per_km)}</div>
+              <PaceFraction sPerKm={act.avg_pace_s_per_km} className="text-lg font-bold text-gray-800" />
               <div className="text-xs text-gray-400">avg pace</div>
             </div>
             {act.avg_hr && (
@@ -339,7 +340,7 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 export default function Dashboard() {
   const [period, setPeriod] = useState<Period>("last_7_days");
-  const { fmtDist, fmtPace, fmtElev } = useUnits();
+  const { fmtDist, fmtElev } = useUnits();
 
   const { data: summary } = useQuery({
     queryKey: ["stats-summary", period],
@@ -387,7 +388,7 @@ export default function Dashboard() {
         <StatCard label="Time"     value={summary ? fmtTime(summary.total_duration_s) : "–"} />
         <StatCard
           label="Avg pace"
-          value={fmtPace(summary?.avg_pace_s_per_km ?? null)}
+          value={<PaceFraction sPerKm={summary?.avg_pace_s_per_km ?? null} className="text-lg font-bold text-gray-800" />}
           sub={summary ? `${fmtElev(summary.total_elevation_m)} gain` : "–"}
         />
       </div>

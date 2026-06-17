@@ -6,6 +6,7 @@ import { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
+import { PaceFraction } from "../components/PaceFraction";
 import { formatDate } from "../utils/dates";
 import { PAGE_SIZE } from "../config";
 
@@ -62,7 +63,7 @@ function matchesSearch(a: Activity, q: string): boolean {
 
 export default function ActivityList() {
   const qc = useQueryClient();
-  const { fmtDist, fmtPace } = useUnits();
+  const { fmtDist } = useUnits();
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [page, setPage] = useState(1);
@@ -259,7 +260,7 @@ export default function ActivityList() {
                   <div className="text-xs text-gray-400">time</div>
                 </div>
                 <div>
-                  <div className="font-semibold text-gray-900">{fmtPace(a.avg_pace_s_per_km)}</div>
+                  <PaceFraction sPerKm={a.avg_pace_s_per_km} className="font-semibold text-gray-900" />
                   <div className="text-xs text-gray-400">pace</div>
                 </div>
                 {a.avg_hr && (
