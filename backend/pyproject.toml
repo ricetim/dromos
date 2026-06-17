@@ -25,6 +25,12 @@ dev = [
     "httpx>=0.27",
 ]
 
+[tool.setuptools.packages.find]
+# Ship only the application package (and its subpackages: app.routers,
+# app.services, …). Without this, flat-layout auto-discovery sees both ``app``
+# and stray sibling dirs and aborts with "multiple top-level packages".
+include = ["app*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

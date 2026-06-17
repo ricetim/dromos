@@ -14,6 +14,10 @@ from app.services.builder import bg_rebuild_all
 from app.services.weather import fetch_weather
 from app.services.sun import sun_fields
 from app.services.shoe_default import stamp_default_shoe
+from app.services.eventlog import log_info, log_warning, log_error
+from app.services.dedup import (
+    LocalCandidate, TIME_MATCH_S, best_fallback_match, closest_in_window,
+)
 from datetime import datetime, timezone
 import threading
 import uuid
@@ -32,6 +36,7 @@ def status():
 def trigger(bg: BackgroundTasks):
     if _sync_lock.locked():
         return {"message": "sync already in progress"}
+    log_info("sync", "manual sync triggered")
     bg.add_task(_sync_strava_activities)
     bg.add_task(_sync_coros)
     return {"message": "sync triggered"}
@@ -40,6 +45,7 @@ def trigger(bg: BackgroundTasks):
 @router.post("/rebuild")
 def rebuild_static(bg: BackgroundTasks):
     """Regenerate all static JSON snapshots from the current database state."""
+    log_info("rebuild", "manual static rebuild triggered")
     bg.add_task(bg_rebuild_all)
     return {"message": "rebuild triggered"}
 
@@ -62,25 +68,31 @@ def _sync_strava_activities() -> None:
             # ── 1. Fetch Strava activity list ─────────────────────────────
             # Fetch all time (after=0) so pre-Coros Strava history is included.
             strava_acts = fetch_athlete_activities(token, after=0)
+            log_info("sync.strava",
+                     f"sync started: fetched {len(strava_acts)} strava activities")
 
             # Build lookup: unix_timestamp → strava activity dict
             def _ts(iso: str) -> int:
                 return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
 
+            def _local_ts(a: Activity) -> int:
+                return int(
+                    a.started_at.replace(tzinfo=timezone.utc).timestamp()
+                    if a.started_at.tzinfo is None
+                    else a.started_at.timestamp()
+                )
+
             strava_by_ts: dict[int, dict] = {_ts(a["start_date"]): a for a in strava_acts}
 
-            # ── 2. Match local activities → strava_id ────────────────────
+            # ── 2. Match local activities → strava_id (time match) ───────
             local_acts = session.exec(select(Activity)).all()
             matched_count = 0
 
             for act in local_acts:
-                local_ts = int(
-                    act.started_at.replace(tzinfo=timezone.utc).timestamp()
-                    if act.started_at.tzinfo is None
-                    else act.started_at.timestamp()
-                )
+                local_ts = _local_ts(act)
                 matched = next(
-                    (strava_by_ts[t] for t in range(local_ts - 60, local_ts + 61)
+                    (strava_by_ts[t]
+                     for t in range(local_ts - TIME_MATCH_S, local_ts + TIME_MATCH_S + 1)
                      if t in strava_by_ts),
                     None,
                 )
@@ -107,16 +119,65 @@ def _sync_strava_activities() -> None:
                 )
             ]
 
+            # Local activities still lacking a strava_id are candidates for the
+            # distance-based fallback: a Coros run whose start time drifted past
+            # the time-match window should still adopt its Strava twin rather
+            # than be duplicated. Keyed by id so an adopted local is removed.
+            cand_pool: dict[int, LocalCandidate] = {
+                a.id: LocalCandidate(id=a.id, start_ts=_local_ts(a),
+                                     distance_m=a.distance_m or 0.0)
+                for a in local_acts if not a.strava_id
+            }
+            locals_by_id = {a.id: a for a in local_acts if not a.strava_id}
+
             streams_imported = 0
+            adopted_count = 0
             for sa in unmatched:
                 strava_id = str(sa["id"])
                 started_at = datetime.fromisoformat(
                     sa["start_date"].replace("Z", "+00:00")
                 ).replace(tzinfo=None)
+                s_ts = _ts(sa["start_date"])
+                s_dist = float(sa.get("distance") or 0)
+
+                # Distance fallback — adopt onto an existing local run instead of
+                # importing a duplicate when start times drifted.
+                cand, dt = best_fallback_match(s_ts, s_dist, cand_pool.values())
+                if cand is not None:
+                    local = locals_by_id[cand.id]
+                    local.strava_id = strava_id
+                    session.add(local)
+                    del cand_pool[cand.id]   # don't let another strava act reuse it
+                    adopted_count += 1
+                    log_warning(
+                        "sync.strava",
+                        f"adopted strava {strava_id} onto local activity {cand.id} "
+                        f"by distance fallback (Δt={dt}s, beyond the {TIME_MATCH_S}s "
+                        f"time window) — not importing a duplicate",
+                        {"strava_id": strava_id, "local_id": cand.id, "delta_s": dt,
+                         "strava_distance_m": round(s_dist),
+                         "local_distance_m": round(cand.distance_m)},
+                    )
+                    continue
+
+                # No distance match — flag the closest local (if any) so a true
+                # duplicate is easy to spot before it silently lands.
+                near, near_dt = closest_in_window(s_ts, cand_pool.values())
+                if near is not None:
+                    log_warning(
+                        "sync.strava",
+                        f"importing strava {strava_id} as NEW — nearest local "
+                        f"{near.id} is Δt={near_dt}s away but distances differ "
+                        f"({round(s_dist)}m vs {round(near.distance_m)}m); "
+                        f"verify this is not a duplicate",
+                        {"strava_id": strava_id, "closest_local_id": near.id,
+                         "delta_s": near_dt, "strava_distance_m": round(s_dist),
+                         "local_distance_m": round(near.distance_m)},
+                    )
 
                 sport_raw = sa.get("sport_type") or sa.get("type") or "run"
                 sport_type = sport_raw.lower().replace(" ", "_")
-                distance_m = float(sa.get("distance") or 0)
+                distance_m = s_dist
                 duration_s = int(sa.get("moving_time") or 0)
                 elevation_m = float(sa.get("total_elevation_gain") or 0)
                 avg_hr = sa.get("average_heartrate")
@@ -125,7 +186,10 @@ def _sync_strava_activities() -> None:
 
                 try:
                     streams = fetch_activity_streams(token, strava_id)
-                except Exception:
+                except Exception as exc:
+                    log_warning("sync.strava",
+                                f"skipped strava {strava_id}: stream fetch failed: {exc}",
+                                {"strava_id": strava_id})
                     continue
 
                 dps = streams_to_datapoints(streams, started_at)
@@ -171,8 +235,10 @@ def _sync_strava_activities() -> None:
                             elevation_gain_m=float(raw.get("total_elevation_gain") or 0) or None,
                         ))
                         elapsed += lap_dur
-                except Exception:
-                    pass  # laps are best-effort
+                except Exception as exc:
+                    log_warning("sync.strava",
+                                f"laps unavailable for strava {strava_id}: {exc}",
+                                {"strava_id": strava_id})  # best-effort
 
                 # Fetch weather
                 first_gps = next((dp for dp in dps if dp.get("lat") and dp.get("lon")), None)
@@ -186,6 +252,13 @@ def _sync_strava_activities() -> None:
                     session.add(act)
 
                 streams_imported += 1
+                log_info(
+                    "sync.strava",
+                    f"imported strava {strava_id} as new activity {act.id} "
+                    f"({distance_m / 1000:.2f} km @ {started_at.isoformat()})",
+                    {"strava_id": strava_id, "activity_id": act.id,
+                     "distance_m": round(distance_m)},
+                )
 
             session.commit()
 
@@ -201,16 +274,24 @@ def _sync_strava_activities() -> None:
                 "status": "ok",
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "matched_activities": matched_count,
+                "strava_activities_adopted": adopted_count,
                 "strava_activities_imported": streams_imported,
                 "new_photos": new_photos,
                 "error": None,
             }
+            log_info(
+                "sync.strava",
+                f"sync complete: matched={matched_count}, adopted={adopted_count}, "
+                f"imported={streams_imported}, new_photos={new_photos}",
+                _last_sync,
+            )
         except Exception as e:
             _last_sync = {
                 "status": "error",
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
             }
+            log_error("sync.strava", f"sync failed: {e}")
 
 
 def _sync_coros() -> None:
@@ -223,6 +304,8 @@ def _sync_coros() -> None:
             remote = coros_list(token, user_id)
             existing_acts = {a.external_id: a for a in session.exec(select(Activity)).all()}
             new_count = 0
+            log_info("sync.coros",
+                     f"sync started: {len(remote)} activities listed on coros")
             for meta in remote:
                 ext_id = str(meta.get("labelId", ""))
                 sport_type_str = str(meta.get("sportType", "100"))
@@ -270,6 +353,13 @@ def _sync_coros() -> None:
                         elevation_gain_m=lap.elevation_gain_m,
                     ))
                 new_count += 1
+                log_info(
+                    "sync.coros",
+                    f"imported coros {ext_id} as new activity {act.id} "
+                    f"({(result.distance_m or 0) / 1000:.2f} km @ {result.started_at.isoformat()})",
+                    {"external_id": ext_id, "activity_id": act.id,
+                     "distance_m": round(result.distance_m or 0)},
+                )
                 # Fetch weather for new activity
                 first_gps = next(
                     (dp for dp in result.datapoints if dp.get("lat") and dp.get("lon")), None
@@ -285,7 +375,9 @@ def _sync_coros() -> None:
             session.commit()
             _last_sync = {"status": "ok", "ts": datetime.now(timezone.utc).isoformat(),
                           "new_activities": new_count, "error": None}
+            log_info("sync.coros", f"sync complete: {new_count} new activities", _last_sync)
             bg_rebuild_all()
         except Exception as e:
             _last_sync = {"status": "error", "ts": datetime.now(timezone.utc).isoformat(),
                           "error": str(e)}
+            log_error("sync.coros", f"sync failed: {e}")

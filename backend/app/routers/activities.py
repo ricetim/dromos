@@ -14,6 +14,7 @@ from app.services.weather import fetch_weather
 from app.services.sun import sun_fields
 from app.services.coros import login as coros_login, list_activities as coros_list, get_activity_detail
 from app.services.shoe_default import stamp_default_shoe
+from app.services.eventlog import log_info
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
@@ -101,6 +102,14 @@ def upload_fit(
         session.commit()
         session.refresh(act)
 
+    log_info(
+        "upload",
+        f"uploaded activity {act.id} "
+        f"({(act.distance_m or 0) / 1000:.2f} km @ {act.started_at.isoformat()})",
+        {"id": act.id, "distance_m": act.distance_m,
+         "started_at": act.started_at.isoformat() if act.started_at else None},
+        session=session,
+    )
     background_tasks.add_task(bg_rebuild_after_upload, act.id)
     return act
 
@@ -110,12 +119,41 @@ def delete_activity(activity_id: int, background_tasks: BackgroundTasks, session
     act = session.get(Activity, activity_id)
     if not act:
         raise HTTPException(status_code=404, detail="Activity not found")
-    # Bulk-delete related rows — much faster than ORM-level one-by-one deletion
+
+    # Snapshot identifying details for the log before the row is gone — after
+    # the commit below the ORM object is detached and its attributes unreadable.
+    n_dp = len(session.exec(select(DataPoint.id).where(DataPoint.activity_id == activity_id)).all())
+    n_laps = len(session.exec(select(Lap.id).where(Lap.activity_id == activity_id)).all())
+    source = act.source
+    distance_km = (act.distance_m or 0) / 1000
+    summary = {
+        "id": activity_id,
+        "source": source,
+        "started_at": act.started_at.isoformat() if act.started_at else None,
+        "distance_m": act.distance_m,
+        "strava_id": act.strava_id,
+        "external_id": act.external_id,
+        "datapoints": n_dp,
+        "laps": n_laps,
+    }
+
+    # Bulk-delete related rows — much faster than ORM-level one-by-one deletion.
+    # Lap rows are included here; the FK has no cascade, so omitting them would
+    # leak orphaned laps that skew per-activity lap views after re-import.
     session.exec(sa_delete(DataPoint).where(DataPoint.activity_id == activity_id))
+    session.exec(sa_delete(Lap).where(Lap.activity_id == activity_id))
     session.exec(sa_delete(Photo).where(Photo.activity_id == activity_id))
     session.exec(sa_delete(ActivityShoe).where(ActivityShoe.activity_id == activity_id))
     session.delete(act)
     session.commit()
+
+    log_info(
+        "delete",
+        f"deleted activity {activity_id} ({source}, "
+        f"{distance_km:.2f} km, {n_dp} datapoints, {n_laps} laps)",
+        summary,
+        session=session,
+    )
     background_tasks.add_task(bg_rebuild_after_delete, activity_id)
 
 

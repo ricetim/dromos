@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from app.models import Activity, ActivityShoe, Shoe
+from app.models import Activity, ActivityShoe, DataPoint, EventLog, Lap, Shoe
 from datetime import datetime
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.fit"
@@ -106,6 +106,32 @@ def test_patch_activity_shoe_clears(client, session):
     assert r.status_code == 200
     links = session.exec(sm_select(ActivityShoe).where(ActivityShoe.activity_id == act.id)).all()
     assert len(links) == 0
+
+
+def test_delete_activity_removes_laps_datapoints_and_logs(client, session):
+    from sqlmodel import select as sm_select
+    act = _make_activity(session)
+    session.add(DataPoint(activity_id=act.id, timestamp=datetime(2024, 1, 1, 8, 0, 0)))
+    session.add(Lap(
+        activity_id=act.id, lap_number=1,
+        start_elapsed_s=0, end_elapsed_s=600, distance_m=2000, duration_s=600,
+    ))
+    session.commit()
+
+    r = client.delete(f"/api/activities/{act.id}")
+    assert r.status_code == 204
+    assert session.get(Activity, act.id) is None
+    # Laps were historically leaked on delete — assert they are gone now.
+    assert session.exec(sm_select(Lap).where(Lap.activity_id == act.id)).all() == []
+    assert session.exec(sm_select(DataPoint).where(DataPoint.activity_id == act.id)).all() == []
+
+    logs = session.exec(sm_select(EventLog).where(EventLog.category == "delete")).all()
+    assert len(logs) == 1
+    assert f"deleted activity {act.id}" in logs[0].message
+
+
+def test_delete_activity_404(client):
+    assert client.delete("/api/activities/99999").status_code == 404
 
 
 def test_patch_activity_shoe_404(client):

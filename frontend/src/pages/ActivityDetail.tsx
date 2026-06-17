@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivity, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros } from "../api/client";
+import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivity, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros, deleteActivity } from "../api/client";
 import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
 import { formatDateLong, formatTime } from "../utils/dates";
@@ -447,6 +447,18 @@ export default function ActivityDetail() {
     },
   });
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteActivity(actId),
+    onSuccess: () => {
+      // Drop this activity's cached detail and refresh the list, then leave.
+      queryClient.removeQueries({ queryKey: ["activity-full", actId] });
+      queryClient.removeQueries({ queryKey: ["datapoints", actId] });
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+      navigate("/activities");
+    },
+  });
+
   function startEditName() {
     setNameDraft(act?.name ?? "");
     setEditingName(true);
@@ -594,6 +606,13 @@ export default function ActivityDetail() {
             >
               Compare →
             </Link>
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="text-[11px] bg-red-50 text-red-600 hover:bg-red-100 px-2 py-0.5 rounded-full transition-colors"
+              title="Delete this activity"
+            >
+              Delete
+            </button>
           </div>
         </div>
 
@@ -770,6 +789,47 @@ export default function ActivityDetail() {
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">Photos</h2>
           <PhotoGallery photos={photos} />
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmingDelete && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !deleteMutation.isPending && setConfirmingDelete(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-gray-900">Delete activity?</h2>
+            <p className="text-sm text-gray-600 mt-2">
+              This permanently removes{" "}
+              <span className="font-medium text-gray-800">
+                {act.name ?? act.sport_type.replace(/_/g, " ")}
+              </span>{" "}
+              ({startDate}) and all its GPS data, laps, and photos. This cannot be undone.
+            </p>
+            {deleteMutation.isError && (
+              <p className="text-sm text-red-600 mt-2">Delete failed — please try again.</p>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleteMutation.isPending}
+                className="text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50 px-3 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 px-4 py-1.5 rounded transition-colors"
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

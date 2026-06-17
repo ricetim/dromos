@@ -84,13 +84,14 @@ app.add_middleware(
 )
 
 
-from app.routers import activities, sync, shoes, goals, profile, tiles
+from app.routers import activities, sync, shoes, goals, profile, tiles, logs
 app.include_router(activities.router)
 app.include_router(sync.router)
 app.include_router(shoes.router)
 app.include_router(goals.router)
 app.include_router(profile.router)
 app.include_router(tiles.router)
+app.include_router(logs.router)
 
 
 @app.get("/api/health")

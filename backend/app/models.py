@@ -1,6 +1,11 @@
 from typing import Optional, List
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlmodel import Field, SQLModel, Relationship
+
+
+def _utcnow_naive() -> datetime:
+    """Naive UTC timestamp, matching the convention used by Activity.started_at."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Activity(SQLModel, table=True):
@@ -121,5 +126,18 @@ class Goal(SQLModel, table=True):
     period_start: date
     period_end: date
     notes: Optional[str] = None
+
+
+class EventLog(SQLModel, table=True):
+    """Persistent, queryable system log — sync runs, imports, dedup decisions,
+    deletions, and errors. Survives restarts (unlike the in-memory sync status)
+    and is exposed read-only at /api/logs and /api/logs/view for debugging.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime = Field(default_factory=_utcnow_naive, index=True)  # naive UTC
+    level: str = Field(default="info", index=True)   # debug | info | warning | error
+    category: str = Field(default="", index=True)    # e.g. sync.strava, sync.coros, upload, delete
+    message: str = ""
+    details: Optional[str] = None                    # optional JSON/string payload
 
 
