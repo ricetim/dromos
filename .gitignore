@@ -30,3 +30,6 @@ docs/*.pdf
 # Claude Code runtime state
 .claude/
 data-dev/
+
+# Local dev logs
+.dev-logs/
