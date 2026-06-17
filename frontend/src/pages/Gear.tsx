@@ -223,6 +223,78 @@ export default function Gear() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
   });
 
+  // ── Rename / re-brand a shoe ──────────────────────────────────────────────
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", brand: "" });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { name: string; brand: string | null } }) =>
+      updateShoe(id, data),
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: ["shoes"] });
+      const previous = qc.getQueryData<Shoe[]>(["shoes"]);
+      qc.setQueryData<Shoe[]>(["shoes"], (old) =>
+        old?.map((s) => (s.id === id ? { ...s, name: data.name, brand: data.brand } : s)),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["shoes"], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["shoes"] }),
+  });
+
+  function startEdit(shoe: Shoe) {
+    setEditingId(shoe.id);
+    setEditForm({ name: shoe.name, brand: shoe.brand ?? "" });
+  }
+
+  function saveEdit(id: number) {
+    const name = editForm.name.trim();
+    if (!name) return; // name is required
+    editMutation.mutate({ id, data: { name, brand: editForm.brand.trim() || null } });
+    setEditingId(null);
+  }
+
+  const renderEditor = (id: number) => (
+    <div className="flex-1 flex items-center gap-2 flex-wrap">
+      <input
+        autoFocus
+        className="border border-gray-300 rounded px-2 py-1 text-sm flex-1 min-w-[8rem]"
+        value={editForm.name}
+        placeholder="Name"
+        onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") saveEdit(id);
+          if (e.key === "Escape") setEditingId(null);
+        }}
+      />
+      <input
+        className="border border-gray-300 rounded px-2 py-1 text-sm w-32"
+        value={editForm.brand}
+        placeholder="Brand"
+        onChange={(e) => setEditForm((f) => ({ ...f, brand: e.target.value }))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") saveEdit(id);
+          if (e.key === "Escape") setEditingId(null);
+        }}
+      />
+      <button
+        onClick={() => saveEdit(id)}
+        disabled={!editForm.name.trim()}
+        className="text-xs bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
+      >
+        Save
+      </button>
+      <button
+        onClick={() => setEditingId(null)}
+        className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+
   const active = shoes.filter((s) => !s.retired);
   const retired = shoes.filter((s) => s.retired);
 
@@ -320,37 +392,52 @@ export default function Gear() {
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-100">
           {active.map((shoe) => (
             <div key={shoe.id} className="flex items-center p-4 hover:bg-gray-50 transition-colors">
-              <button
-                onClick={() =>
-                  defaultMutation.mutate(shoe.is_default ? null : shoe.id)
-                }
-                aria-label={shoe.is_default ? "Default shoe" : "Set as default"}
-                className={`mr-3 text-xl leading-none transition-colors ${
-                  shoe.is_default ? "text-yellow-500" : "text-gray-300 hover:text-yellow-400"
-                }`}
-                disabled={defaultMutation.isPending}
-              >
-                {shoe.is_default ? "★" : "☆"}
-              </button>
-              <Link
-                to={`/activities?shoe=${shoe.id}`}
-                className="flex-1 min-w-0"
-              >
-                <div className="font-medium text-gray-800">{shoe.name}</div>
-                {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
-                <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
-              </Link>
-              <div className="text-right ml-4 flex-shrink-0">
-                <div className="text-sm font-mono text-gray-700">
-                  {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
-                </div>
-                <button
-                  onClick={() => retireMutation.mutate(shoe.id)}
-                  className="text-xs text-gray-400 hover:text-red-500 mt-1"
-                >
-                  Retire
-                </button>
-              </div>
+              {editingId === shoe.id ? (
+                renderEditor(shoe.id)
+              ) : (
+                <>
+                  <button
+                    onClick={() =>
+                      defaultMutation.mutate(shoe.is_default ? null : shoe.id)
+                    }
+                    aria-label={shoe.is_default ? "Default shoe" : "Set as default"}
+                    className={`mr-3 text-xl leading-none transition-colors ${
+                      shoe.is_default ? "text-yellow-500" : "text-gray-300 hover:text-yellow-400"
+                    }`}
+                    disabled={defaultMutation.isPending}
+                  >
+                    {shoe.is_default ? "★" : "☆"}
+                  </button>
+                  <Link
+                    to={`/activities?shoe=${shoe.id}`}
+                    className="flex-1 min-w-0"
+                  >
+                    <div className="font-medium text-gray-800">{shoe.name}</div>
+                    {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
+                    <MileageBar used={shoe.total_distance_km} limit={shoe.retirement_threshold_km} />
+                  </Link>
+                  <div className="text-right ml-4 flex-shrink-0">
+                    <div className="text-sm font-mono text-gray-700">
+                      {fmtShoe(shoe.total_distance_km)} / {fmtShoe(shoe.retirement_threshold_km)}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <button
+                        onClick={() => startEdit(shoe)}
+                        className="text-xs text-gray-400 hover:text-blue-600"
+                      >
+                        Edit
+                      </button>
+                      <span className="text-gray-200">·</span>
+                      <button
+                        onClick={() => retireMutation.mutate(shoe.id)}
+                        className="text-xs text-gray-400 hover:text-red-500"
+                      >
+                        Retire
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -367,19 +454,35 @@ export default function Gear() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Retired</h2>
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-50 opacity-60">
             {retired.map((shoe) => (
-              <Link
+              <div
                 key={shoe.id}
-                to={`/activities?shoe=${shoe.id}`}
-                className="p-4 flex items-center justify-between hover:opacity-80 transition-opacity"
+                className="p-4 flex items-center justify-between gap-3"
               >
-                <div>
-                  <div className="font-medium text-gray-600">{shoe.name}</div>
-                  {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
-                </div>
-                <div className="text-sm font-mono text-gray-500">
-                  {fmtShoe(shoe.total_distance_km)}
-                </div>
-              </Link>
+                {editingId === shoe.id ? (
+                  renderEditor(shoe.id)
+                ) : (
+                  <>
+                    <Link
+                      to={`/activities?shoe=${shoe.id}`}
+                      className="min-w-0 hover:opacity-80 transition-opacity"
+                    >
+                      <div className="font-medium text-gray-600">{shoe.name}</div>
+                      {shoe.brand && <div className="text-xs text-gray-400">{shoe.brand}</div>}
+                    </Link>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-sm font-mono text-gray-500">
+                        {fmtShoe(shoe.total_distance_km)}
+                      </span>
+                      <button
+                        onClick={() => startEdit(shoe)}
+                        className="text-xs text-gray-400 hover:text-blue-600"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             ))}
           </div>
         </div>
