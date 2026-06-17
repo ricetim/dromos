@@ -87,7 +87,7 @@ function RangeSummary({
   datapoints: DataPoint[];
   range: [number, number];
 }) {
-  const { fmtDist, fmtPace, fmtElev } = useUnits();
+  const { fmtDist, fmtPaceBoth, fmtElev } = useUnits();
   const slice = datapoints.slice(range[0], range[1] + 1);
   if (slice.length < 2) return null;
 
@@ -115,7 +115,7 @@ function RangeSummary({
       <span className="font-medium text-orange-700 mr-3">Selected range:</span>
       <span className="text-gray-700 mr-4">{fmtDist(distM)}</span>
       <span className="text-gray-700 mr-4">{formatDuration(durationS)}</span>
-      {avgPace && <span className="text-gray-700 mr-4">{fmtPace(avgPace)}</span>}
+      {avgPace && <span className="text-gray-700 mr-4">{fmtPaceBoth(avgPace)}</span>}
       {avgHr && <span className="text-gray-700 mr-4">{avgHr} bpm avg</span>}
       {netElev != null && (
         <span className={netElev >= 0 ? "text-green-700" : "text-red-600"}>

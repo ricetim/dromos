@@ -12,6 +12,8 @@ interface UnitsCtx {
   fmtPace: (sPerKm: number | null) => string;
   /** Seconds-per-km → bare "m:ss" pace values for each system (no unit suffix) */
   fmtPaceParts: (sPerKm: number | null) => { mi: string; km: string };
+  /** Seconds-per-km → "m:ss /mi · m:ss /km" (both systems on one line) */
+  fmtPaceBoth: (sPerKm: number | null) => string;
   /** Metres → formatted elevation string */
   fmtElev: (m: number) => string;
   /** Shoe km → formatted distance string */
@@ -67,6 +69,12 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
     };
   }
 
+  function fmtPaceBoth(sPerKm: number | null): string {
+    if (!sPerKm) return "—";
+    const { mi, km } = fmtPaceParts(sPerKm);
+    return `${mi} /mi · ${km} /km`;
+  }
+
   function fmtElev(m: number): string {
     if (system === "imperial") return Math.round(m * FT_PER_M) + " ft";
     return Math.round(m) + " m";
@@ -88,7 +96,7 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Ctx.Provider value={{ system, toggle, fmtDist, fmtPace, fmtPaceParts, fmtElev, fmtShoe, fmtTemp, fmtPrecip }}>
+    <Ctx.Provider value={{ system, toggle, fmtDist, fmtPace, fmtPaceParts, fmtPaceBoth, fmtElev, fmtShoe, fmtTemp, fmtPrecip }}>
       {children}
     </Ctx.Provider>
   );

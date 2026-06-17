@@ -147,7 +147,7 @@ function minettCost(g: number): number {
 const C0 = minettCost(0); // 3.6 W/kg/m — flat running cost
 
 export default function ActivityCharts({ datapoints, externalRange, onRangeChange, onRangeClear, onHoverIndex }: Props) {
-  const { fmtPace, fmtElev } = useUnits();
+  const { fmtPace, fmtPaceBoth, fmtElev } = useUnits();
   const [activeMain, setActiveMain] = useState<Set<MainOverlay>>(
     new Set(["pace", "hr", "elevation"])
   );
@@ -263,8 +263,8 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
 
   // Update formatter ref every render (fmtPace/fmtElev may depend on unit setting)
   fmtRef.current = {
-    pace:          (v) => fmtPace(v),
-    gap:           (v) => fmtPace(v),
+    pace:          (v) => fmtPaceBoth(v),
+    gap:           (v) => fmtPaceBoth(v),
     elevation:     (v) => fmtElev(v),
     hr:            (v) => `${v} bpm`,
     cadence:       (v) => `${v} spm`,
