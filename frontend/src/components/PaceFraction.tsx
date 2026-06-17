@@ -26,8 +26,8 @@ export function PaceFraction({
     <span
       className={`inline-flex flex-col items-stretch text-center tabular-nums leading-tight ${className}`}
     >
-      <span className="border-b border-gray-300 pb-px">{mi}</span>
-      <span className="pt-px">{km}</span>
+      <span className="border-b border-gray-300 pb-px">{mi} /mi</span>
+      <span className="pt-px">{km} /km</span>
     </span>
   );
 }

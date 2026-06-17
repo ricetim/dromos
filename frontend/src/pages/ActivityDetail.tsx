@@ -135,6 +135,7 @@ function LapTable({
   activeLap: number | null;
   onLapClick: (lap: Lap) => void;
 }) {
+  const { fmtPaceParts } = useUnits();
   if (!laps.length) return null;
 
   return (
@@ -145,12 +146,14 @@ function LapTable({
           <tr className="text-gray-400 uppercase border-b border-gray-100">
             <th className="text-left pb-1.5">#</th>
             <th className="text-right pb-1.5">Time</th>
-            <th className="text-right pb-1.5 pl-2">Pace</th>
+            <th className="text-right pb-1.5 pl-2">min/mi</th>
+            <th className="text-right pb-1.5 pl-2">min/km</th>
           </tr>
         </thead>
         <tbody>
           {laps.map((lap) => {
             const isActive = activeLap === lap.lap_number;
+            const pace = fmtPaceParts(lap.avg_pace_s_per_km);
             return (
               <tr
                 key={lap.id}
@@ -163,9 +166,8 @@ function LapTable({
                 <td className="py-1.5 text-right text-gray-800 tabular-nums">
                   {formatDuration(Math.round(lap.duration_s))}
                 </td>
-                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
-                  <PaceFraction sPerKm={lap.avg_pace_s_per_km} />
-                </td>
+                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">{pace.mi}</td>
+                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">{pace.km}</td>
               </tr>
             );
           })}

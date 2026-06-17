@@ -10,7 +10,7 @@ interface UnitsCtx {
   fmtDist: (m: number) => string;
   /** Seconds-per-km → formatted pace string */
   fmtPace: (sPerKm: number | null) => string;
-  /** Seconds-per-km → both imperial and metric pace strings (system-agnostic) */
+  /** Seconds-per-km → bare "m:ss" pace values for each system (no unit suffix) */
   fmtPaceParts: (sPerKm: number | null) => { mi: string; km: string };
   /** Metres → formatted elevation string */
   fmtElev: (m: number) => string;
@@ -44,25 +44,26 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
     return (m / 1000).toFixed(2) + " km";
   }
 
-  /** Seconds-per-distance → "m:ss /unit" */
-  function fmtSecPace(s: number, unit: string): string {
+  /** Seconds-per-distance → bare "m:ss" (no unit) */
+  function fmtSecPace(s: number): string {
     const m = Math.floor(s / 60);
     const sec = Math.round(s % 60).toString().padStart(2, "0");
-    return `${m}:${sec} ${unit}`;
+    return `${m}:${sec}`;
   }
 
   function fmtPace(sPerKm: number | null): string {
     if (!sPerKm) return "—";
     const s = system === "imperial" ? sPerKm * KM_PER_MI : sPerKm;
     const unit = system === "imperial" ? "/mi" : "/km";
-    return fmtSecPace(s, unit);
+    return `${fmtSecPace(s)} ${unit}`;
   }
 
+  /** Bare "m:ss" values for each system (no unit suffix); "—" when unknown */
   function fmtPaceParts(sPerKm: number | null): { mi: string; km: string } {
     if (!sPerKm) return { mi: "—", km: "—" };
     return {
-      mi: fmtSecPace(sPerKm * KM_PER_MI, "/mi"),
-      km: fmtSecPace(sPerKm, "/km"),
+      mi: fmtSecPace(sPerKm * KM_PER_MI),
+      km: fmtSecPace(sPerKm),
     };
   }
 
