@@ -86,6 +86,9 @@ html[data-theme="solarized-dark"] .recharts-tooltip-cursor {
 html[data-theme="solarized-dark"] .bg-amber-50  { background-color: #073642 !important; }
 html[data-theme="solarized-dark"] .bg-orange-50 { background-color: #073642 !important; }
 html[data-theme="solarized-dark"] .bg-blue-50   { background-color: #073642 !important; }
+/* Calendar current-week highlight — opacity variant isn't caught by .bg-blue-50,
+   and must stay distinct from the #073642 panel tone */
+html[data-theme="solarized-dark"] .bg-blue-50\/40 { background-color: rgba(38,139,210,0.22) !important; }
 html[data-theme="solarized-dark"] .border-amber-200  { border-color: #586e75 !important; }
 html[data-theme="solarized-dark"] .border-orange-200 { border-color: #586e75 !important; }
 html[data-theme="solarized-dark"] .hover\:bg-blue-50:hover { background-color: #073642 !important; }
@@ -141,6 +144,8 @@ html[data-theme="solarized-light"] .border-blue-600 { border-color: #073642 !imp
 html[data-theme="solarized-light"] .bg-amber-50  { background-color: #eee8d5 !important; }
 html[data-theme="solarized-light"] .bg-orange-50 { background-color: #eee8d5 !important; }
 html[data-theme="solarized-light"] .bg-blue-50   { background-color: #eee8d5 !important; }
+/* Calendar current-week highlight — opacity variant isn't caught by .bg-blue-50 */
+html[data-theme="solarized-light"] .bg-blue-50\/40 { background-color: rgba(38,139,210,0.15) !important; }
 html[data-theme="solarized-light"] .border-amber-200  { border-color: #93a1a1 !important; }
 html[data-theme="solarized-light"] .border-orange-200 { border-color: #93a1a1 !important; }
 html[data-theme="solarized-light"] .hover\:bg-gray-50:hover  { background-color: #eee8d5 !important; }
