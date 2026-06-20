@@ -135,7 +135,7 @@ function LapTable({
   activeLap: number | null;
   onLapClick: (lap: Lap) => void;
 }) {
-  const { fmtPaceParts } = useUnits();
+  const { fmtPaceParts, fmtDist } = useUnits();
   if (!laps.length) return null;
 
   return (
@@ -145,7 +145,8 @@ function LapTable({
         <thead>
           <tr className="text-gray-400 uppercase border-b border-gray-100">
             <th className="text-left pb-1.5">#</th>
-            <th className="text-right pb-1.5">Time</th>
+            <th className="text-right pb-1.5 pl-2">Dist</th>
+            <th className="text-right pb-1.5 pl-2">Time</th>
             <th className="text-right pb-1.5 pl-2">min/mi</th>
             <th className="text-right pb-1.5 pl-2">min/km</th>
           </tr>
@@ -163,7 +164,10 @@ function LapTable({
                 }`}
               >
                 <td className="py-1.5 text-gray-500">{lap.lap_number}</td>
-                <td className="py-1.5 text-right text-gray-800 tabular-nums">
+                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
+                  {fmtDist(lap.distance_m)}
+                </td>
+                <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
                   {formatDuration(Math.round(lap.duration_s))}
                 </td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">{pace.mi}</td>
