@@ -10,6 +10,7 @@ import { formatDateMonthDay, formatDateLong } from "../utils/dates";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 import { PaceFraction } from "../components/PaceFraction";
+import { HeartPulseIcon } from "../components/HeartPulseIcon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -214,19 +215,10 @@ function ActivityRow({ act }: { act: Activity }) {
           </p>
         )}
       </div>
-      <div className="flex gap-3 text-sm text-right flex-shrink-0">
-        <div>
-          <div className="font-semibold text-gray-900">{fmtDist(act.distance_m)}</div>
-          <div className="text-xs text-gray-400">dist</div>
-        </div>
-        <div>
-          <div className="font-semibold text-gray-900">{fmtTime(act.duration_s)}</div>
-          <div className="text-xs text-gray-400">time</div>
-        </div>
-        <div>
-          <PaceFraction sPerKm={act.avg_pace_s_per_km} className="font-semibold text-gray-900" />
-          <div className="text-xs text-gray-400">pace</div>
-        </div>
+      <div className="flex items-center gap-3 text-sm text-right flex-shrink-0">
+        <div className="font-semibold text-gray-900">{fmtDist(act.distance_m)}</div>
+        <div className="font-semibold text-gray-900">{fmtTime(act.duration_s)}</div>
+        <PaceFraction sPerKm={act.avg_pace_s_per_km} className="font-semibold text-gray-900" />
       </div>
     </Link>
   );
@@ -257,23 +249,14 @@ function FeaturedActivity({ act }: { act: Activity }) {
           <div className="text-xl font-bold text-gray-900 mb-2">
             {act.name || act.sport_type.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
           </div>
-          <div className="flex flex-wrap gap-6">
-            <div>
-              <div className="text-2xl font-bold text-blue-600">{fmtDist(act.distance_m)}</div>
-              <div className="text-xs text-gray-400">distance</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-800">{fmtTime(act.duration_s)}</div>
-              <div className="text-xs text-gray-400">time</div>
-            </div>
-            <div>
-              <PaceFraction sPerKm={act.avg_pace_s_per_km} className="text-lg font-bold text-gray-800" />
-              <div className="text-xs text-gray-400">avg pace</div>
-            </div>
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="text-2xl font-bold text-blue-600">{fmtDist(act.distance_m)}</div>
+            <div className="text-2xl font-bold text-gray-800">{fmtTime(act.duration_s)}</div>
+            <PaceFraction sPerKm={act.avg_pace_s_per_km} className="text-lg font-bold text-gray-800" />
             {act.avg_hr && (
-              <div>
-                <div className="text-2xl font-bold text-red-500">{act.avg_hr}</div>
-                <div className="text-xs text-gray-400">bpm avg</div>
+              <div className="flex items-center gap-1.5 text-2xl font-bold text-red-500">
+                <HeartPulseIcon className="w-6 h-6" />
+                {act.avg_hr}
               </div>
             )}
           </div>

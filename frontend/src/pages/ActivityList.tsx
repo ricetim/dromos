@@ -7,6 +7,7 @@ import { useUnits } from "../contexts/UnitsContext";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 import { PaceFraction } from "../components/PaceFraction";
+import { HeartPulseIcon } from "../components/HeartPulseIcon";
 import { formatDate } from "../utils/dates";
 import { PAGE_SIZE } from "../config";
 
@@ -250,23 +251,14 @@ export default function ActivityList() {
               </div>
 
               {/* Stats */}
-              <div className="flex gap-4 text-sm text-right flex-shrink-0">
-                <div>
-                  <div className="font-semibold text-gray-900">{fmtDist(a.distance_m)}</div>
-                  <div className="text-xs text-gray-400">dist</div>
-                </div>
-                <div>
-                  <div className="font-semibold text-gray-900">{formatDuration(a.duration_s)}</div>
-                  <div className="text-xs text-gray-400">time</div>
-                </div>
-                <div>
-                  <PaceFraction sPerKm={a.avg_pace_s_per_km} className="font-semibold text-gray-900" />
-                  <div className="text-xs text-gray-400">pace</div>
-                </div>
+              <div className="flex items-center gap-4 text-sm text-right flex-shrink-0">
+                <div className="font-semibold text-gray-900">{fmtDist(a.distance_m)}</div>
+                <div className="font-semibold text-gray-900">{formatDuration(a.duration_s)}</div>
+                <PaceFraction sPerKm={a.avg_pace_s_per_km} className="font-semibold text-gray-900" />
                 {a.avg_hr && (
-                  <div>
-                    <div className="font-semibold text-gray-900">{a.avg_hr}</div>
-                    <div className="text-xs text-gray-400">bpm</div>
+                  <div className="flex items-center gap-1 font-semibold text-gray-900">
+                    <HeartPulseIcon className="w-4 h-4 text-red-500" />
+                    {a.avg_hr}
                   </div>
                 )}
               </div>
