@@ -728,7 +728,7 @@ export default function ActivityDetail() {
       <div className="flex flex-col md:flex-row gap-4 items-start">
         {/* Laps — below on mobile, left column on desktop */}
         {laps.length > 0 && (
-          <div className="order-2 md:order-1 w-full md:w-48 md:flex-shrink-0">
+          <div className="order-2 md:order-1 w-full md:w-56 md:flex-shrink-0">
             <LapTable
               laps={laps}
               activeLap={activeLap}
