@@ -15,3 +15,8 @@ STRAVA_REFRESH_TOKEN = os.getenv("STRAVA_REFRESH_TOKEN", "")
 
 COROS_EMAIL = os.getenv("COROS_EMAIL", "")
 COROS_PASSWORD = os.getenv("COROS_PASSWORD", "")
+
+# IANA timezone used to decide which calendar day an activity belongs to.
+# Activities are stored as naive UTC; day-bucketing converts to this zone first
+# so the day flips at local midnight. Mirrors frontend src/config.ts DISPLAY_TZ.
+DISPLAY_TZ = os.getenv("DISPLAY_TZ", "America/Los_Angeles")

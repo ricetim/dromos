@@ -9,10 +9,12 @@ never touch Python). Keep these pure: take a ``Session``, return plain data.
 """
 import math
 from collections import namedtuple
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
+from app.config import DISPLAY_TZ
 from app.models import Activity, DataPoint, UserProfile
 from app.services.analytics import (
     compute_vdot,
@@ -22,6 +24,19 @@ from app.services.analytics import (
     compute_training_loads,
     predict_race_time_s,
 )
+
+_DISPLAY_TZ = ZoneInfo(DISPLAY_TZ)
+
+
+def _local_date(dt: datetime) -> date:
+    """Calendar day of a stored timestamp in the configured display zone.
+
+    Activity timestamps are naive UTC (see models.py); assume UTC when no
+    tzinfo is present, then convert so the day flips at local midnight.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_DISPLAY_TZ).date()
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +50,7 @@ def _build_tss_by_date(session: Session) -> dict[date, float]:
     tss_by_date: dict[date, float] = {}
 
     for act in acts:
-        day = act.started_at.date()
+        day = _local_date(act.started_at)
         if act.avg_hr and act.duration_s:
             # Fast path: no datapoints needed — estimate from average HR
             hr_rest, hr_max = profile.hr_rest, profile.hr_max
@@ -54,7 +69,7 @@ def _build_tss_by_date(session: Session) -> dict[date, float]:
 def get_training_load(session: Session, days: int = 90) -> list[dict]:
     """Return daily ATL, CTL, TSB (training load) for the last `days` days."""
     tss_by_date = _build_tss_by_date(session)
-    today = date.today()
+    today = datetime.now(_DISPLAY_TZ).date()
     start = today - timedelta(days=days)
     loads = compute_training_loads(tss_by_date, start_date=start, end_date=today)
 

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getActivities } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
+import { DISPLAY_TZ } from "../config";
 import type { Activity } from "../types";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -38,6 +39,31 @@ function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** YYYY-MM-DD of a stored (naive-UTC) timestamp in the display timezone.
+ *  started_at has no offset suffix, so append "Z" to anchor it to UTC before
+ *  converting; the day then flips at local (Pacific) midnight, matching the
+ *  backend's day-bucketing in services/stats.py. */
+function displayDateKey(iso: string): string {
+  const utc = /[Z]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(utc));
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** "Today" as a Date whose local Y/M/D match the current day in the display
+ *  timezone, so getDate()/weekSunday() and the grid navigation operate in
+ *  Pacific regardless of the viewer's browser timezone. Time is set to noon so
+ *  later setDate() arithmetic can't roll across a day/DST boundary. */
+function displayNow(): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const v = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  return new Date(v("year"), v("month") - 1, v("day"), 12);
+}
+
 /** Build a 5-or-6 row calendar grid for the given year/month.
  *  Returns an array of weeks, each week is 7 Date objects. */
 function buildCalendarGrid(year: number, month: number): Date[][] {
@@ -59,7 +85,7 @@ function buildCalendarGrid(year: number, month: number): Date[][] {
 }
 
 export default function CalendarView() {
-  const today = new Date();
+  const today = displayNow();
   const todayKey = localDateKey(today);
   const [year, setYear]   = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -70,26 +96,24 @@ export default function CalendarView() {
     queryFn: getActivities,
   });
 
-  // Index activities by local YYYY-MM-DD
+  // Index activities by their display-timezone calendar day (Pacific midnight)
   const byDate: Record<string, Activity[]> = {};
   for (const act of activities) {
-    // Parse as local time to avoid UTC-offset day shift
-    const local = new Date(act.started_at);
-    const key = localDateKey(local);
+    const key = displayDateKey(act.started_at);
     if (!byDate[key]) byDate[key] = [];
     byDate[key].push(act);
   }
 
   const weeks = buildCalendarGrid(year, month);
   const monthLabel = new Date(year, month, 1).toLocaleString("en-US", {
-    month: "long", year: "numeric", timeZone: "America/Los_Angeles",
+    month: "long", year: "numeric",
   });
 
-  // Monthly summary: all activities whose started_at falls in this year/month
-  const monthActs = activities.filter((a) => {
-    const d = new Date(a.started_at);
-    return d.getFullYear() === year && d.getMonth() === month;
-  });
+  // Monthly summary: all activities whose Pacific day falls in this year/month
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const monthActs = activities.filter((a) =>
+    displayDateKey(a.started_at).startsWith(monthPrefix)
+  );
   const monthDistM = monthActs.reduce((s, a) => s + (a.distance_m ?? 0), 0);
   const monthRuns  = monthActs.length;
 
