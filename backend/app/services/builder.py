@@ -482,8 +482,9 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
     - ``shoes_timeline.json``: ``[{date, "<shoe_id>": cum_km, ...}, ...]`` — a
       dense day-aligned series from the earliest first-use across all shoes
       through today, with carry-forward on rest days and post-retirement.
-      Values are ``null`` before that shoe's own first use, so each line
-      starts at its own entry point rather than the axis origin.
+      Values are ``null`` until the shoe's cumulative distance first turns
+      positive, so each line starts at its first mileage-bearing activity
+      rather than the axis origin or an early zero-distance entry.
     """
     from app.models import Activity, ActivityShoe, Shoe, UserProfile
 
@@ -535,7 +536,12 @@ def _rebuild_shoes(session: Session, static_dir: Path) -> None:
                 daily[i][key] = None
                 continue
             cum_km += per_day_m[shoe.id].get(d, 0.0) / 1000
-            daily[i][key] = round(cum_km, 2)
+            # A shoe's first assigned activity may carry no distance (e.g. a
+            # GPS-less treadmill run or a mis-attributed entry), which would
+            # otherwise draw a flat line pinned to the axis for months before
+            # any real mileage. Emit null until the cumulative is positive so
+            # the line begins at the first activity that contributes distance.
+            daily[i][key] = round(cum_km, 2) if cum_km > 0 else None
 
     shoes_meta = [{
         **shoe.model_dump(),

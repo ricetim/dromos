@@ -398,6 +398,49 @@ def test_rebuild_shoes_pre_first_use_is_null(session, tmp_path):
     assert by_date["2025-03-01"][early_k] == 4.0
 
 
+def test_rebuild_shoes_leading_zero_distance_is_null(session, tmp_path):
+    """A shoe whose first assigned activity carries no distance must not draw a
+    flat line at the axis: every day stays null until the cumulative distance
+    first turns positive, so the line begins at the first real-mileage run."""
+    from app.services.builder import _rebuild_shoes
+    from app.models import ActivityShoe
+
+    shoe = Shoe(name="ZeroStart", retirement_threshold_km=800.0)
+    session.add(shoe)
+    session.flush()
+
+    # First use: a distance-less activity (e.g. GPS-less treadmill run).
+    a_zero = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        distance_m=0.0, duration_s=1800, elevation_gain_m=0.0, sport_type="run",
+    )
+    # First mileage-bearing activity, two months later.
+    a_real = Activity(
+        source="manual_upload",
+        started_at=datetime(2025, 3, 1, tzinfo=timezone.utc),
+        distance_m=5000.0, duration_s=1500, elevation_gain_m=10.0, sport_type="run",
+    )
+    session.add_all([a_zero, a_real])
+    session.flush()
+    session.add_all([
+        ActivityShoe(activity_id=a_zero.id, shoe_id=shoe.id),
+        ActivityShoe(activity_id=a_real.id, shoe_id=shoe.id),
+    ])
+    session.commit()
+
+    _rebuild_shoes(session, tmp_path)
+    daily = json.loads((tmp_path / "shoes_timeline.json").read_text())
+    by_date = {row["date"]: row for row in daily}
+    k = str(shoe.id)
+
+    # The zero-distance first-use day and the whole flat-zero stretch are null.
+    assert by_date["2025-01-01"][k] is None
+    assert by_date["2025-02-15"][k] is None
+    # The line starts on the first day mileage actually accrues.
+    assert by_date["2025-03-01"][k] == 5.0
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Period volume bucketing
 # ──────────────────────────────────────────────────────────────────────────
