@@ -13,6 +13,8 @@ from pathlib import Path
 
 from sqlmodel import Session, select, func
 
+from app.services.stats import _local_date, _DISPLAY_TZ
+
 STATIC_DIR = Path(os.environ.get("DATA_DIR", "/data")) / "static"
 
 
@@ -114,7 +116,7 @@ def _bucket_by_day(acts, start: date, end: date, label_style: str) -> list[dict]
     n_days = (end - start).days + 1
     by_date: dict[date, float] = {}
     for a in acts:
-        d = a.started_at.date()
+        d = _local_date(a.started_at)
         if start <= d <= end:
             by_date[d] = by_date.get(d, 0.0) + a.distance_m
 
@@ -152,7 +154,7 @@ def _bucket_by_week_sun_start(acts, start: date, end: date) -> list[dict]:
     """
     by_date: dict[date, float] = {}
     for a in acts:
-        d = a.started_at.date()
+        d = _local_date(a.started_at)
         if start <= d <= end:
             by_date[d] = by_date.get(d, 0.0) + a.distance_m
 
@@ -212,7 +214,7 @@ def _compute_period_data(acts, period: str, today: date) -> tuple[dict, dict]:
     else:
         raise ValueError(f"unknown period: {period}")
 
-    in_period = [a for a in acts if start <= a.started_at.date() <= end]
+    in_period = [a for a in acts if start <= _local_date(a.started_at) <= end]
     total_km = round(sum(a.distance_m for a in in_period) / 1000.0, 2)
 
     summary = {
@@ -431,8 +433,10 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
 
 
 def _today_fn() -> date:
-    """Indirection so tests can freeze 'today' via monkeypatch."""
-    return date.today()
+    """Today in the display timezone (Pacific), so period windows flip at the
+    same local midnight as the bucketing. Indirection lets tests freeze 'today'
+    via monkeypatch."""
+    return datetime.now(_DISPLAY_TZ).date()
 
 
 def _rebuild_dashboard(session: Session, static_dir: Path) -> None:
