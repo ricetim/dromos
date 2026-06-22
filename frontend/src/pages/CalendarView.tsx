@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { getActivities } from "../api/client";
 import { useUnits } from "../contexts/UnitsContext";
 import { DISPLAY_TZ } from "../config";
+import { displayDateKey } from "../utils/dates";
 import type { Activity } from "../types";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -39,19 +40,6 @@ function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** YYYY-MM-DD of a stored (naive-UTC) timestamp in the display timezone.
- *  started_at has no offset suffix, so append "Z" to anchor it to UTC before
- *  converting; the day then flips at local (Pacific) midnight, matching the
- *  backend's day-bucketing in services/stats.py. */
-function displayDateKey(iso: string): string {
-  const utc = /[Z]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: DISPLAY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(new Date(utc));
-  const get = (t: string) => parts.find((p) => p.type === t)!.value;
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
 /** "Today" as a Date whose local Y/M/D match the current day in the display
  *  timezone, so getDate()/weekSunday() and the grid navigation operate in
  *  Pacific regardless of the viewer's browser timezone. Time is set to noon so
@@ -71,7 +59,7 @@ function buildCalendarGrid(year: number, month: number): Date[][] {
   const lastDay  = new Date(year, month + 1, 0);
   const start    = weekSunday(firstDay);
   const weeks: Date[][] = [];
-  let current = new Date(start);
+  const current = new Date(start);
   while (current <= lastDay || weeks.length < 4) {
     const week: Date[] = [];
     for (let i = 0; i < 7; i++) {

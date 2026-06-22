@@ -1,12 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
 import { getStatsSummary, getActivities, getPersonalBests, getGoals, getActivityFull, getDataPoints, getVolumeBuckets } from "../api/client";
 import type { Period } from "../api/client";
 import type { Activity } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
-import { formatDateMonthDay, formatDateLong } from "../utils/dates";
+import { formatDateMonthDay, formatDateLong, displayDateKey, addDaysToDateKey } from "../utils/dates";
 import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 import { PaceFraction } from "../components/PaceFraction";
@@ -273,23 +273,70 @@ function FeaturedActivity({ act }: { act: Activity }) {
 
 function VolumeChart({ period }: { period: Period }) {
   const { system } = useUnits();
+  const navigate = useNavigate();
   const { data } = useQuery({
     queryKey: ["volume", period],
     queryFn: () => getVolumeBuckets(period),
     staleTime: Infinity,
   });
+  // Activities are already warm-cached; we use them to resolve a clicked bar to
+  // its underlying run(s). Indexed by Pacific calendar day to match the bars.
+  const { data: activities = [] } = useQuery<Activity[]>({
+    queryKey: ["activities"],
+    queryFn: getActivities,
+    staleTime: Infinity,
+  });
+  const byDay = useMemo(() => {
+    const m = new Map<string, Activity[]>();
+    for (const a of activities) {
+      const k = displayDateKey(a.started_at);
+      const arr = m.get(k);
+      if (arr) arr.push(a);
+      else m.set(k, [a]);
+    }
+    return m;
+  }, [activities]);
+
   if (!data) return null;
 
   const distUnit = system === "imperial" ? "mi" : "km";
   const toDisplay = (km: number) =>
     system === "imperial" ? +(km * 0.621371).toFixed(1) : +km.toFixed(1);
 
-  const rows = data.buckets.map((b: { label: string; km: number }) => ({
+  type Row = { label: string; dist: number; date: string };
+  const rows: Row[] = data.buckets.map((b: { label: string; km: number; date: string }) => ({
     label: b.label,
     dist: toDisplay(b.km),
+    date: b.date,
   }));
   const total = toDisplay(data.total_km);
   const gap = period === "year" ? "8%" : period === "month" ? "12%" : "25%";
+
+  // Runs that built a given bucket. Day buckets index directly; year buckets
+  // are Sunday-anchored weeks, so collect the seven-day [Sun, Sat] span.
+  function bucketActs(dateKey: string): Activity[] {
+    if (period === "year") {
+      const end = addDaysToDateKey(dateKey, 6);
+      return activities.filter((a) => {
+        const k = displayDateKey(a.started_at);
+        return k >= dateKey && k <= end;
+      });
+    }
+    return byDay.get(dateKey) ?? [];
+  }
+
+  function handleBarClick(row: Row) {
+    const acts = bucketActs(row.date);
+    if (acts.length === 0) return;            // empty bar — nothing to open
+    if (period === "year") {
+      // A week → the activities list filtered to that Sun–Sat span.
+      navigate(`/activities?from=${row.date}&to=${addDaysToDateKey(row.date, 6)}`);
+    } else if (acts.length === 1) {
+      navigate(`/activities/${acts[0].id}`);  // single run → straight to it
+    } else {
+      navigate(`/activities?from=${row.date}&to=${row.date}`);  // a multi-run day
+    }
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
@@ -302,9 +349,11 @@ function VolumeChart({ period }: { period: Period }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
           <YAxis tick={{ fontSize: 10 }} width={36} unit={` ${distUnit}`} />
-          <Tooltip contentStyle={{ fontSize: 12 }}
+          <Tooltip contentStyle={{ fontSize: 12 }} cursor={{ fill: "rgba(59,130,246,0.08)" }}
                    formatter={(v: number) => [`${v} ${distUnit}`, "Distance"]} />
-          <Bar dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="dist" fill="#3b82f6" radius={[3, 3, 0, 0]}
+               cursor="pointer"
+               onClick={(_, index) => handleBarClick(rows[index])} />
         </BarChart>
       </ResponsiveContainer>
     </div>

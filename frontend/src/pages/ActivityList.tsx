@@ -8,7 +8,7 @@ import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 import { PaceFraction } from "../components/PaceFraction";
 import { HeartPulseIcon } from "../components/HeartPulseIcon";
-import { formatDate } from "../utils/dates";
+import { formatDate, displayDateKey, formatDateKey } from "../utils/dates";
 import { PAGE_SIZE } from "../config";
 
 function formatDuration(s: number): string {
@@ -72,6 +72,19 @@ export default function ActivityList() {
   const shoeIdParam = searchParams.get("shoe");
   const shoeId = shoeIdParam ? parseInt(shoeIdParam, 10) : null;
 
+  // Date-range filter (?from=YYYY-MM-DD&to=YYYY-MM-DD), set by dashboard chart
+  // clicks: a single day (from === to) or a Sun–Sat week.
+  const fromParam = searchParams.get("from");
+  const toParam = searchParams.get("to");
+  const dateRange = fromParam && toParam ? { from: fromParam, to: toParam } : null;
+
+  function clearDateRange() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("from");
+    next.delete("to");
+    setSearchParams(next);
+  }
+
   const { data: activities = [], isLoading } = useQuery<Activity[]>({
     queryKey: ["activities"],
     queryFn: getActivities,
@@ -102,7 +115,10 @@ export default function ActivityList() {
     (a) =>
       matchesFilter(a, quickFilter) &&
       matchesSearch(a, search) &&
-      (shoeActivityIds === null || shoeActivityIds.has(a.id))
+      (shoeActivityIds === null || shoeActivityIds.has(a.id)) &&
+      (dateRange === null ||
+        (displayDateKey(a.started_at) >= dateRange.from &&
+          displayDateKey(a.started_at) <= dateRange.to))
   );
 
   // Pagination
@@ -157,6 +173,34 @@ export default function ActivityList() {
             onClick={() => setSearchParams({})}
             className="ml-auto text-blue-400 hover:text-blue-700"
             aria-label="Clear shoe filter"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Date-range banner — set by clicking a bar on the dashboard chart */}
+      {dateRange && (
+        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+          <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
+          </svg>
+          <span>
+            {dateRange.from === dateRange.to ? (
+              <>Showing runs on <strong>{formatDateKey(dateRange.from)}</strong></>
+            ) : (
+              <>
+                Showing the week of{" "}
+                <strong>
+                  {formatDateKey(dateRange.from, { month: "short", day: "numeric" })} – {formatDateKey(dateRange.to, { month: "short", day: "numeric" })}
+                </strong>
+              </>
+            )}
+          </span>
+          <button
+            onClick={clearDateRange}
+            className="ml-auto text-blue-400 hover:text-blue-700"
+            aria-label="Clear date filter"
           >
             ✕
           </button>
