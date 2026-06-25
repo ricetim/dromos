@@ -135,8 +135,10 @@ function LapTable({
   activeLap: number | null;
   onLapClick: (lap: Lap) => void;
 }) {
-  const { fmtPaceParts, fmtDist } = useUnits();
+  const { fmtPaceParts, fmtDist, system } = useUnits();
   if (!laps.length) return null;
+
+  const distUnit = system === "imperial" ? "mi" : "km";
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3 sticky top-4">
@@ -145,10 +147,10 @@ function LapTable({
         <thead>
           <tr className="text-gray-400 uppercase border-b border-gray-100">
             <th className="text-left pb-1.5">#</th>
-            <th className="text-right pb-1.5 pl-2">Dist</th>
+            <th className="text-right pb-1.5 pl-2">Dist ({distUnit})</th>
             <th className="text-right pb-1.5 pl-2">Time</th>
-            <th className="text-right pb-1.5 pl-2">min/mi</th>
-            <th className="text-right pb-1.5 pl-2">min/km</th>
+            <th className="text-right pb-1.5 pl-2">/mi</th>
+            <th className="text-right pb-1.5 pl-2">/km</th>
           </tr>
         </thead>
         <tbody>
@@ -165,7 +167,7 @@ function LapTable({
               >
                 <td className="py-1.5 text-gray-500">{lap.lap_number}</td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
-                  {fmtDist(lap.distance_m)}
+                  {fmtDist(lap.distance_m).split(" ")[0]}
                 </td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
                   {formatDuration(Math.round(lap.duration_s))}
