@@ -170,10 +170,10 @@ function LapTable({
                 onMouseLeave={() => onLapHover(null)}
                 className={`cursor-pointer border-b border-gray-50 transition-colors ${
                   isActive
-                    ? "bg-orange-100 font-semibold"
+                    ? "bg-orange-500/20 font-semibold"
                     : isHovered
-                    ? "bg-orange-50"
-                    : ""
+                    ? "bg-orange-500/10"
+                    : "hover:bg-orange-500/5"
                 }`}
               >
                 <td className="py-1.5 text-gray-500">{lap.lap_number}</td>
