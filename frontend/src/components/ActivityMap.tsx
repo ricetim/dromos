@@ -55,6 +55,8 @@ interface Props {
   preloadedTrack?: TrackPoint[];  // fast-loading GPS+speed; if provided, used for map rendering
   photos?: Photo[];
   highlightRange?: [number, number] | null;
+  /** Transient hover highlight (e.g. lap hover) — drawn in place, never re-fits the map. */
+  previewRange?: [number, number] | null;
 }
 
 /** Captures the Leaflet map instance and manages the imperative hover dot. */
@@ -149,7 +151,7 @@ function buildPaceSegments(
 }
 
 const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
-  { datapoints, preloadedTrack, photos = [], highlightRange }: Props,
+  { datapoints, preloadedTrack, photos = [], highlightRange, previewRange }: Props,
   ref,
 ) {
   const { theme } = useTheme();
@@ -208,13 +210,25 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
     return buildPaceSegments(datapoints);
   }, [preloadedTrack, datapoints]);
 
+  const gpsCoords = useMemo(
+    () => datapoints.filter((dp) => dp.lat !== null && dp.lon !== null).map((dp) => [dp.lat!, dp.lon!] as [number, number]),
+    [datapoints],
+  );
+
+  // Committed highlight (lap click / brush) — also drives FitBounds.
   const highlighted: [number, number][] = useMemo(() => {
     if (!highlightRange) return [];
-    const gps = datapoints.filter((dp) => dp.lat !== null && dp.lon !== null);
-    return gps
-      .slice(highlightRange[0], highlightRange[1])
-      .map((dp) => [dp.lat!, dp.lon!]);
-  }, [datapoints, highlightRange]);
+    return gpsCoords.slice(highlightRange[0], highlightRange[1]);
+  }, [gpsCoords, highlightRange]);
+
+  // Transient hover highlight (lap hover) — drawn in place, never re-fits.
+  const preview: [number, number][] = useMemo(() => {
+    if (!previewRange) return [];
+    return gpsCoords.slice(previewRange[0], previewRange[1]);
+  }, [gpsCoords, previewRange]);
+
+  // What actually gets drawn: hover preview takes precedence over the committed segment.
+  const shownHighlight = preview.length > 1 ? preview : highlighted;
 
   const gpsPhotos = useMemo(
     () => photos.filter((p) => p.lat !== null && p.lon !== null),
@@ -273,9 +287,9 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
         </>
       )}
 
-      {/* Brush-selected highlight */}
-      {highlighted.length > 1 && (
-        <Polyline positions={highlighted} color="#f97316" weight={5} opacity={0.9} />
+      {/* Brush / lap highlight — hover preview drawn in place, committed segment otherwise */}
+      {shownHighlight.length > 1 && (
+        <Polyline positions={shownHighlight} color="#f97316" weight={5} opacity={0.9} />
       )}
 
       {/* Imperative hover dot — updated directly without React re-renders */}

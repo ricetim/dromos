@@ -129,11 +129,15 @@ function RangeSummary({
 function LapTable({
   laps,
   activeLap,
+  hoverLap,
   onLapClick,
+  onLapHover,
 }: {
   laps: Lap[];
   activeLap: number | null;
+  hoverLap: number | null;
   onLapClick: (lap: Lap) => void;
+  onLapHover: (lapNumber: number | null) => void;
 }) {
   const { fmtPaceParts, fmtDist, system } = useUnits();
   if (!laps.length) return null;
@@ -156,13 +160,20 @@ function LapTable({
         <tbody>
           {laps.map((lap) => {
             const isActive = activeLap === lap.lap_number;
+            const isHovered = hoverLap === lap.lap_number;
             const pace = fmtPaceParts(lap.avg_pace_s_per_km);
             return (
               <tr
                 key={lap.id}
                 onClick={() => onLapClick(lap)}
+                onMouseEnter={() => onLapHover(lap.lap_number)}
+                onMouseLeave={() => onLapHover(null)}
                 className={`cursor-pointer border-b border-gray-50 transition-colors ${
-                  isActive ? "bg-orange-50 font-semibold" : "hover:bg-gray-50"
+                  isActive
+                    ? "bg-orange-100 font-semibold"
+                    : isHovered
+                    ? "bg-orange-50"
+                    : ""
                 }`}
               >
                 <td className="py-1.5 text-gray-500">{lap.lap_number}</td>
@@ -337,6 +348,7 @@ export default function ActivityDetail() {
   const segEnd = searchParams.get("seg_end") ? parseFloat(searchParams.get("seg_end")!) : null;
   const [brushRange, setBrushRange] = useState<[number, number] | null>(null);
   const [activeLap, setActiveLap] = useState<number | null>(null);
+  const [hoverLap, setHoverLap] = useState<number | null>(null);
   const mapRef = useRef<ActivityMapHandle>(null);
   const { fmtDist, fmtElev } = useUnits();
 
@@ -523,6 +535,13 @@ export default function ActivityDetail() {
       setBrushRange([elapsedToIdx(lap.start_elapsed_s), elapsedToIdx(lap.end_elapsed_s)]);
     }
   }
+
+  // Index range of the currently-hovered lap, used to paint a transient highlight
+  // band on the charts and an in-place segment on the map (no zoom / no re-fit).
+  const hoverLapObj = hoverLap !== null ? laps.find((l) => l.lap_number === hoverLap) : null;
+  const hoverRange: [number, number] | null = hoverLapObj
+    ? [elapsedToIdx(hoverLapObj.start_elapsed_s), elapsedToIdx(hoverLapObj.end_elapsed_s)]
+    : null;
 
   if (fullLoading) {
     return <div className="p-6 text-gray-500">Loading activity…</div>;
@@ -734,7 +753,9 @@ export default function ActivityDetail() {
             <LapTable
               laps={laps}
               activeLap={activeLap}
+              hoverLap={hoverLap}
               onLapClick={handleLapClick}
+              onLapHover={setHoverLap}
             />
           </div>
         )}
@@ -753,6 +774,7 @@ export default function ActivityDetail() {
               preloadedTrack={track}
               photos={photos}
               highlightRange={brushRange}
+              previewRange={hoverRange}
             />
           )}
 
@@ -773,6 +795,7 @@ export default function ActivityDetail() {
               <ActivityCharts
                 datapoints={datapoints}
                 externalRange={brushRange}
+                highlightRange={hoverRange}
                 onRangeChange={(start, end) => { setActiveLap(null); setBrushRange([start, end]); }}
                 onRangeClear={() => { setActiveLap(null); setBrushRange(null); }}
                 onHoverIndex={handleHoverIndex}

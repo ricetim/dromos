@@ -16,6 +16,8 @@ import { useUnits } from "../contexts/UnitsContext";
 interface Props {
   datapoints: DataPoint[];
   externalRange?: [number, number] | null;
+  /** Absolute index range to paint as a non-zooming highlight band (e.g. lap hover). */
+  highlightRange?: [number, number] | null;
   onRangeChange?: (startIdx: number, endIdx: number) => void;
   onRangeClear?: () => void;
   onHoverIndex?: (idx: number | null) => void;
@@ -146,7 +148,7 @@ function minettCost(g: number): number {
 }
 const C0 = minettCost(0); // 3.6 W/kg/m — flat running cost
 
-export default function ActivityCharts({ datapoints, externalRange, onRangeChange, onRangeClear, onHoverIndex }: Props) {
+export default function ActivityCharts({ datapoints, externalRange, highlightRange, onRangeChange, onRangeClear, onHoverIndex }: Props) {
   const { fmtPace, fmtPaceBoth, fmtElev } = useUnits();
   const [activeMain, setActiveMain] = useState<Set<MainOverlay>>(
     new Set(["pace", "hr", "elevation"])
@@ -397,6 +399,12 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
   const refLeft  = dragStart !== null && dragEnd !== null ? Math.min(dragStart, dragEnd) : null;
   const refRight = dragStart !== null && dragEnd !== null ? Math.max(dragStart, dragEnd) : null;
 
+  // Hover highlight band (lap hover) — absolute indices → elapsed_s on the x-axis.
+  // Drawn over the full chart without zooming; suppressed while drag-selecting.
+  const hlX1 = highlightRange && data[highlightRange[0]] ? data[highlightRange[0]].elapsed_s : null;
+  const hlX2 = highlightRange && data[highlightRange[1]] ? data[highlightRange[1]].elapsed_s : null;
+  const showHighlightBand = !isDragging && hlX1 !== null && hlX2 !== null && hlX1 !== hlX2;
+
   // Shared mouse handlers — mutate ref to avoid stale closure in Recharts callbacks
   function handleMouseDown(e: any) {
     const label = e?.activeLabel;
@@ -600,6 +608,17 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
                 strokeOpacity={0.4}
               />
             )}
+            {showHighlightBand && (
+              <ReferenceArea
+                yAxisId="right"
+                x1={hlX1!}
+                x2={hlX2!}
+                fill="#f97316"
+                fillOpacity={0.14}
+                stroke="#f97316"
+                strokeOpacity={0.45}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -759,6 +778,17 @@ export default function ActivityCharts({ datapoints, externalRange, onRangeChang
                     />
                   );
                 })}
+                {showHighlightBand && (
+                  <ReferenceArea
+                    yAxisId="dyn-right"
+                    x1={hlX1!}
+                    x2={hlX2!}
+                    fill="#f97316"
+                    fillOpacity={0.14}
+                    stroke="#f97316"
+                    strokeOpacity={0.45}
+                  />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
