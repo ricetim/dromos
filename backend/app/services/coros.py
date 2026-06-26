@@ -53,6 +53,23 @@ def download_fit(token: str, user_id: str, label_id: str, sport_type: str) -> by
     return httpx.get(url, timeout=60).content
 
 
+def get_activity_detail_raw(token: str, user_id: str, label_id: str, sport_type: str) -> dict:
+    """Full, unparsed `data` object from the activity-detail endpoint.
+
+    Used for debugging/discovery (e.g. hunting for the rest-vs-run interval
+    structure the Coros app shows but the FIT file omits). Unlike
+    get_activity_detail() this returns everything, not just RPE/notes.
+    """
+    r = httpx.post(
+        f"{BASE}/activity/detail/query",
+        params={"labelId": label_id, "sportType": sport_type},
+        headers=_headers(token, user_id),
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json().get("data", {})
+
+
 def get_activity_detail(token: str, user_id: str, label_id: str, sport_type: str) -> dict:
     """
     Fetch activity detail. Returns dict with:
