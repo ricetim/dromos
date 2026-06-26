@@ -92,63 +92,6 @@ function FitBounds({
   return null;
 }
 
-/** Colours a polyline by a per-point value using a red→green scale. */
-function ColouredTrack({
-  segments,
-}: {
-  segments: { coords: [number, number][]; colour: string }[];
-}) {
-  const { theme } = useTheme();
-  const isDark = theme === "solarized-dark";
-  const outlineColor = isDark ? "#002b36" : "#ffffff";
-  return (
-    <>
-      {segments.map((seg, i) => (
-        <Polyline key={`shadow-${i}`} positions={seg.coords} color="#000000" weight={6} opacity={0.15} />
-      ))}
-      {segments.map((seg, i) => (
-        <Polyline key={`outline-${i}`} positions={seg.coords} color={outlineColor} weight={5} opacity={0.9} />
-      ))}
-      {segments.map((seg, i) => (
-        <Polyline key={`track-${i}`} positions={seg.coords} color={seg.colour} weight={3} />
-      ))}
-    </>
-  );
-}
-
-/** Build coloured segments from speed data (green = fast, red = slow). */
-function buildPaceSegments(
-  datapoints: DataPoint[]
-): { coords: [number, number][]; colour: string }[] {
-  const withGps = datapoints.filter(
-    (dp) => dp.lat !== null && dp.lon !== null && dp.speed_m_s !== null
-  );
-  if (withGps.length < 2) return [];
-
-  const speeds = withGps.map((dp) => dp.speed_m_s!);
-  const minSpeed = Math.min(...speeds);
-  const maxSpeed = Math.max(...speeds);
-  const range = maxSpeed - minSpeed || 1;
-
-  const segments: { coords: [number, number][]; colour: string }[] = [];
-  for (let i = 0; i < withGps.length - 1; i++) {
-    const dp = withGps[i];
-    const next = withGps[i + 1];
-    const t = (dp.speed_m_s! - minSpeed) / range; // 0 = slow, 1 = fast
-    // Interpolate red (#ef4444) → yellow (#eab308) → green (#22c55e)
-    const r = t < 0.5 ? 239 : Math.round(239 - (t - 0.5) * 2 * (239 - 34));
-    const g = t < 0.5 ? Math.round(t * 2 * 163) : Math.round(163 + (t - 0.5) * 2 * (197 - 163));
-    const b = t < 0.5 ? 68 : Math.round(68 + (t - 0.5) * 2 * (94 - 68));
-    segments.push({
-      coords: [
-        [dp.lat!, dp.lon!],
-        [next.lat!, next.lon!],
-      ],
-      colour: `rgb(${r},${g},${b})`,
-    });
-  }
-  return segments;
-}
 
 const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
   { datapoints, preloadedTrack, photos = [], highlightRange, previewRange }: Props,
@@ -181,33 +124,13 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
     },
   }));
 
-  // Use preloadedTrack for coords + pace segments if available (loads fast).
+  // Use preloadedTrack for coords if available (loads fast).
   // Full datapoints are still used for hover marker and highlight range.
   const coords: [number, number][] = useMemo(() => {
     if (preloadedTrack?.length) return preloadedTrack.map(([lat, lon]) => [lat, lon]);
     return datapoints
       .filter((dp) => dp.lat !== null && dp.lon !== null)
       .map((dp) => [dp.lat!, dp.lon!]);
-  }, [preloadedTrack, datapoints]);
-
-  const paceSegments = useMemo(() => {
-    if (preloadedTrack?.length) {
-      const pts = preloadedTrack.filter(([,, s]) => s !== null);
-      if (pts.length < 2) return [];
-      const speeds = pts.map(([,, s]) => s!);
-      const minSpeed = Math.min(...speeds);
-      const maxSpeed = Math.max(...speeds);
-      const spd_range = maxSpeed - minSpeed || 1;
-      return pts.slice(0, -1).map((pt, i) => {
-        const next = pts[i + 1];
-        const t = (pt[2]! - minSpeed) / spd_range;
-        const r = t < 0.5 ? 239 : Math.round(239 - (t - 0.5) * 2 * (239 - 34));
-        const g = t < 0.5 ? Math.round(t * 2 * 163) : Math.round(163 + (t - 0.5) * 2 * (197 - 163));
-        const b = t < 0.5 ? 68 : Math.round(68 + (t - 0.5) * 2 * (94 - 68));
-        return { coords: [[pt[0], pt[1]], [next[0], next[1]]] as [number, number][], colour: `rgb(${r},${g},${b})` };
-      });
-    }
-    return buildPaceSegments(datapoints);
   }, [preloadedTrack, datapoints]);
 
   const gpsCoords = useMemo(
@@ -277,15 +200,9 @@ const ActivityMap = forwardRef<ActivityMapHandle, Props>(function ActivityMap(
         highlightedCoords={highlighted.length >= 2 ? highlighted : undefined}
       />
 
-      {/* Pace-coloured track */}
-      {paceSegments.length > 0 ? (
-        <ColouredTrack segments={paceSegments} />
-      ) : (
-        <>
-          <Polyline positions={coords} color={theme === "solarized-dark" ? "#002b36" : "#ffffff"} weight={5} opacity={0.8} />
-          <Polyline positions={coords} color="#3b82f6" weight={3} />
-        </>
-      )}
+      {/* Base track — solid green with a light/dark casing for contrast on any tile */}
+      <Polyline positions={coords} color={theme === "solarized-dark" ? "#002b36" : "#ffffff"} weight={5} opacity={0.8} />
+      <Polyline positions={coords} color="#16a34a" weight={3} />
 
       {/* Brush / lap highlight — hover preview drawn in place, committed segment otherwise */}
       {shownHighlight.length > 1 && (
