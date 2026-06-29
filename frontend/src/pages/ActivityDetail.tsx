@@ -99,8 +99,10 @@ function RangeSummary({
   const t1 = new Date(slice[slice.length - 1].timestamp).getTime();
   const durationS = Math.round((t1 - t0) / 1000);
 
-  const speeds = slice.filter((d) => d.speed_m_s && d.speed_m_s > 0).map((d) => d.speed_m_s!);
-  const avgPace = speeds.length ? 1000 / (speeds.reduce((a, b) => a + b, 0) / speeds.length) : null;
+  // Average pace = distance ÷ time, matching the lap table. Deriving it from the
+  // instantaneous speed channel (mean of speed_m_s) biases the result low — those
+  // GPS speed samples don't integrate back to the odometer distance.
+  const avgPace = distM > 0 && durationS > 0 ? durationS / (distM / 1000) : null;
 
   const hrs = slice.filter((d) => d.heart_rate).map((d) => d.heart_rate!);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
