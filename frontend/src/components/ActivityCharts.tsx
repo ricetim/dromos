@@ -193,14 +193,34 @@ export default function ActivityCharts({ datapoints, externalRange, highlightRan
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
     });
 
+    // Lag-free pace from the odometer. The device's speed_m_s channel is heavily
+    // low-pass filtered (~15 s to ramp up to a rep's pace, and it keeps reading
+    // fast ~7 s after the rep ends), so plotting 1000/speed makes the pace line
+    // trail the laps. A *centered* finite difference of cumulative distance over a
+    // ±PACE_HALF_WINDOW_S window removes that phase lag; the window also smooths
+    // the metre-level quantization of the distance odometer. (Widen for a smoother
+    // line, narrow for a sharper one.)
+    const PACE_HALF_WINDOW_S = 4;
+    const es = datapoints.map((dp) => (new Date(dp.timestamp).getTime() - t0) / 1000);
+    const centeredPace: (number | null)[] = new Array(n).fill(null);
+    {
+      let lo = 0, hi = 0;
+      for (let i = 0; i < n; i++) {
+        while (lo < i && es[i] - es[lo] > PACE_HALF_WINDOW_S) lo++;
+        if (hi < i) hi = i;
+        while (hi < n - 1 && es[hi + 1] - es[i] <= PACE_HALF_WINDOW_S) hi++;
+        const d0 = datapoints[lo].distance_m, d1 = datapoints[hi].distance_m;
+        const dt = es[hi] - es[lo];
+        if (d0 != null && d1 != null && dt >= 1 && d1 - d0 >= 1) {
+          const spd = (d1 - d0) / dt;
+          if (spd > 0.5) centeredPace[i] = Math.round((1000 / spd) * 10) / 10;
+        }
+      }
+    }
+
     return datapoints.map((dp, idx) => {
-      const elapsed_s = Math.round(
-        (new Date(dp.timestamp).getTime() - t0) / 1000
-      );
-      const pace =
-        dp.speed_m_s && dp.speed_m_s > 0.5
-          ? Math.round((1000 / dp.speed_m_s) * 10) / 10
-          : null;
+      const elapsed_s = Math.round(es[idx]);
+      const pace = centeredPace[idx];
 
       // Grade-adjusted pace using Minetti 2002
       let gap: number | null = null;
