@@ -9,10 +9,12 @@ RUN npm run build
 # Stage 2: Python runtime — serves API + static files
 FROM python:3.11-slim
 WORKDIR /app
+# Install from pyproject.toml so the manifest is the single source of truth —
+# a hardcoded pip list here silently drifts from the declared dependencies.
+# Copy the package first so the build stays cacheable, then install it.
 COPY backend/pyproject.toml .
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" "sqlmodel<0.0.30" fitdecode \
-    httpx python-multipart apscheduler exifread brotli
 COPY backend/app/ ./app/
+RUN pip install --no-cache-dir .
 COPY --from=frontend-builder /app/dist /app/frontend
 # Precompress the immutable SPA bundle once at build time (Brotli q11). Runtime
 # JSON gets its .br siblings from builder._write_json.

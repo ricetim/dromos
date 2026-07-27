@@ -11,24 +11,11 @@ import {
 import { getActivities, getActivityFull, getDataPoints } from "../api/client";
 import type { Activity, DataPoint } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
-import { formatDateShort, formatDateShortNoYear } from "../utils/dates";
+import { formatClock, formatCompact, formatDateShort, formatDateShortNoYear } from "../utils/dates";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function fmtElapsed(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
 
-function fmtDuration(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
 
 /** Binary-search nearest datapoint value at a given elapsed second. */
 function interpVal(
@@ -197,8 +184,8 @@ function StatsTable({
     },
     {
       label: "Duration",
-      a: actA ? fmtDuration(actA.duration_s) : "—",
-      b: actB ? fmtDuration(actB.duration_s) : "—",
+      a: actA ? formatCompact(actA.duration_s) : "—",
+      b: actB ? formatCompact(actB.duration_s) : "—",
     },
     {
       label: "Avg Pace",
@@ -380,7 +367,7 @@ export default function Compare() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="elapsed_s" tickFormatter={fmtElapsed} minTickGap={60} tick={{ fontSize: 11 }} />
+              <XAxis dataKey="elapsed_s" tickFormatter={formatClock} minTickGap={60} tick={{ fontSize: 11 }} />
               {/* Pace axis — reversed (lower s/km = faster) */}
               <YAxis yAxisId="pace" orientation="left" reversed domain={["auto","auto"]} tickFormatter={(v) => fmtPace(v)} width={52} tick={{ fontSize: 10 }} />
               {/* HR axis */}

@@ -4,6 +4,9 @@ from app.config import DATABASE_URL
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
+# Highest applied one-shot migration (stored in SQLite's PRAGMA user_version).
+_SCHEMA_REVISION = 1
+
 
 @event.listens_for(engine, "connect")
 def _set_sqlite_pragmas(dbapi_connection, _record):
@@ -25,6 +28,11 @@ def _add_column(conn, table: str, column: str, col_type: str) -> None:
 
 
 def create_db_and_tables():
+    # Import the models before create_all: SQLModel.metadata only knows about
+    # tables whose classes have been imported, so without this a caller that
+    # hasn't already pulled in app.models silently creates nothing.
+    import app.models  # noqa: F401
+
     SQLModel.metadata.create_all(engine)
     # Incremental column migrations for existing databases
     with engine.connect() as conn:
@@ -45,6 +53,8 @@ def create_db_and_tables():
         _add_column(conn, "activity", "sunrise", "TIMESTAMP")
         _add_column(conn, "activity", "sunset", "TIMESTAMP")
         _add_column(conn, "userprofile", "default_shoe_id", "INTEGER")
+        _add_column(conn, "activity", "thumb_track", "TEXT")
+        _add_column(conn, "activity", "pb_cached", "INTEGER DEFAULT 0")
         # Drop vestigial Strava gear id; SQLite 3.35+ supports DROP COLUMN.
         # Wrapped in try/except for idempotency on already-migrated DBs.
         try:
@@ -52,13 +62,21 @@ def create_db_and_tables():
         except Exception:
             pass
 
-        # Back-fill avg_pace_s_per_km using correct formula: duration_s / (distance_m / 1000)
-        # The old formula (mean of 1000/speed per datapoint) over-weighted slow segments.
-        conn.exec_driver_sql(
-            "UPDATE activity SET avg_pace_s_per_km = "
-            "CAST(duration_s AS REAL) / (distance_m / 1000.0) "
-            "WHERE distance_m > 0"
-        )
+        # One-shot back-fills, gated on PRAGMA user_version so they run once per
+        # database rather than on every boot. Ungated, the avg_pace rewrite below
+        # re-scanned (and silently re-clobbered) the whole activity table at every
+        # startup. Bump _SCHEMA_REVISION and add a branch to append a new one.
+        revision = conn.exec_driver_sql("PRAGMA user_version").scalar() or 0
+        if revision < 1:
+            # Back-fill avg_pace_s_per_km using correct formula: duration_s / (distance_m / 1000)
+            # The old formula (mean of 1000/speed per datapoint) over-weighted slow segments.
+            conn.exec_driver_sql(
+                "UPDATE activity SET avg_pace_s_per_km = "
+                "CAST(duration_s AS REAL) / (distance_m / 1000.0) "
+                "WHERE distance_m > 0"
+            )
+        if revision < _SCHEMA_REVISION:
+            conn.exec_driver_sql(f"PRAGMA user_version = {_SCHEMA_REVISION}")
 
         # Performance indexes — safe to run repeatedly (IF NOT EXISTS)
         conn.exec_driver_sql(

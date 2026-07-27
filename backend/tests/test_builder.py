@@ -78,9 +78,11 @@ def test_rebuild_globals_writes_all_files(session, act, tmp_path):
     assert "summary" in dash
     assert "last_7_days" in dash["summary"]
     assert "volume" in dash
-    assert "training_load" in dash
     assert "vdot" in dash
     assert "personal_bests" in dash
+    # training_load is computed by services/stats.py but deliberately not
+    # shipped: nothing renders CTL/ATL/TSB yet and it was ~half of this file.
+    assert "training_load" not in dash
 
 
 def test_rebuild_globals_empty_db(session, tmp_path):

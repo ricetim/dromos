@@ -48,6 +48,28 @@ export function formatTime(iso: string): string {
   });
 }
 
+// ── elapsed-duration formatting ──────────────────────────────────────────────
+// Two distinct house styles, previously copy-pasted into six page components
+// under five different names. They are NOT interchangeable — pick by context.
+
+/** Clock style: "1:23:45" with hours, "23:45" without. Use for paces, splits,
+ *  lap times, and anything compared against a stopwatch. */
+export function formatClock(s: number): string {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+/** Compact style: "1h 23m", or "23m" under an hour. Use for at-a-glance
+ *  totals where seconds are noise. */
+export function formatCompact(s: number): string {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 // ── plain calendar-day keys (YYYY-MM-DD) ─────────────────────────────────────
 
 /** YYYY-MM-DD of a stored (naive-UTC) timestamp in the display timezone.

@@ -23,26 +23,40 @@ export const getDataPoints = (id: number) =>
 export type Period = "last_7_days" | "month" | "year";
 
 // Stats: all come from dashboard.json; each function extracts its slice.
+//
+// Several React Query keys (stats-summary ×3, volume ×3, vdot, personal-bests)
+// read this one file, and React Query only dedupes within a key — so app boot
+// fired eight parallel fetches of the same payload. Share the *in-flight*
+// promise so concurrent callers collapse into one request, then drop it once
+// settled: a later refetch (e.g. after invalidateQueries) still hits the
+// network and sees the rebuilt file.
+let _dashInFlight: ReturnType<typeof _fetchJson> | null = null;
+
+const _dashboard = () => {
+  if (!_dashInFlight) {
+    const p = _fetchJson("/static/dashboard.json");
+    _dashInFlight = p;
+    // Settle handler that swallows nothing: `p` keeps its own rejection for
+    // callers, this chain just clears the slot without an unhandled rejection.
+    p.then(
+      () => {},
+      () => {},
+    ).then(() => {
+      if (_dashInFlight === p) _dashInFlight = null;
+    });
+  }
+  return _dashInFlight;
+};
+
 export const getStatsSummary = (period: Period = "last_7_days") =>
-  _fetchJson("/static/dashboard.json").then((d) => d.summary[period]);
+  _dashboard().then((d) => d.summary[period]);
 
 export const getVolumeBuckets = (period: Period) =>
-  _fetchJson("/static/dashboard.json").then((d) => d.volume[period]);
+  _dashboard().then((d) => d.volume[period]);
 
-export const getTrainingLoad = (days = 90) =>
-  _fetchJson("/static/dashboard.json").then(
-    (d: { training_load: { date: string }[] }) => {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      return d.training_load.filter((row) => new Date(row.date) >= cutoff);
-    }
-  );
+export const getVdot = () => _dashboard().then((d) => d.vdot);
 
-export const getVdot = () =>
-  _fetchJson("/static/dashboard.json").then((d) => d.vdot);
-
-export const getPersonalBests = () =>
-  _fetchJson("/static/dashboard.json").then((d) => d.personal_bests);
+export const getPersonalBests = () => _dashboard().then((d) => d.personal_bests);
 
 export const getGoals = () => _fetchJson("/static/goals.json");
 
@@ -86,14 +100,6 @@ export const updateActivityShoe = (activityId: number, shoeId: number | null) =>
 
 export const setDefaultShoe = (shoeId: number | null) =>
   api.patch("/profile", { default_shoe_id: shoeId }).then((r) => r.data);
-
-export const getProfile = () => api.get("/profile").then((r) => r.data);
-
-export const getSyncStatus = () =>
-  api.get("/sync/status").then((r) => r.data);
-
-export const triggerSync = () =>
-  api.post("/sync/trigger").then((r) => r.data);
 
 export const getPhotos = (id: number) =>
   api.get(`/activities/${id}/photos`).then((r) => r.data);

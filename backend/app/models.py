@@ -26,6 +26,14 @@ class Activity(SQLModel, table=True):
     rpe: Optional[int] = None                # 1-5 from Coros feelType
     name: Optional[str] = None             # activity name from Coros
 
+    # Cached derived data. Both are pure functions of this activity's DataPoints,
+    # which never change after import, so they are computed once and reused
+    # instead of being rebuilt on every global snapshot refresh.
+    # thumb_track: JSON [[lat, lon], …] outline for list/dashboard thumbnails.
+    thumb_track: Optional[str] = None
+    # pb_cached: personal-best segments for this activity are in ActivityPB.
+    pb_cached: bool = False
+
     # Weather at run time (fetched from Open-Meteo at upload)
     weather_temp_c: Optional[float] = None
     weather_feels_like_c: Optional[float] = None
@@ -117,6 +125,25 @@ class Lap(SQLModel, table=True):
     avg_hr: Optional[int] = None
     avg_pace_s_per_km: Optional[float] = None
     elevation_gain_m: Optional[float] = None
+
+
+class ActivityPB(SQLModel, table=True):
+    """Cached fastest segment per (activity, distance label).
+
+    A datapoint stream never changes after import, so an activity's best
+    segment for a given distance is immutable once computed. Recomputing every
+    activity on every write (shoe change, goal edit…) meant rescanning the whole
+    DataPoint table; this table lets ``get_personal_bests`` compute only what is
+    new and merge the rest. ``Activity.pb_cached`` marks an activity as
+    processed — needed because "computed, found nothing" produces no rows here
+    and would otherwise be retried forever.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    activity_id: int = Field(foreign_key="activity.id", index=True)
+    label: str = Field(index=True)        # e.g. "5k" — matches stats._PB_DISTANCES
+    time_s: float
+    start_elapsed_s: float
+    end_elapsed_s: float
 
 
 class Goal(SQLModel, table=True):

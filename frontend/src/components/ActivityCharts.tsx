@@ -299,19 +299,31 @@ export default function ActivityCharts({ datapoints, externalRange, highlightRan
   };
 
   const offset = zoomedRange?.[0] ?? 0;
-  const displayData = zoomedRange ? data.slice(zoomedRange[0], zoomedRange[1] + 1) : data;
+  // Memoised so the slice isn't reallocated on unrelated re-renders, and so
+  // dynDomains below can depend on it directly.
+  const displayData = useMemo(
+    () => (zoomedRange ? data.slice(zoomedRange[0], zoomedRange[1] + 1) : data),
+    [data, zoomedRange],
+  );
 
   // Y-domain for each dynamic metric from the currently displayed data — used to position gradient stops
   const dynDomains = useMemo(() => {
     const domains: Record<string, [number, number] | null> = {};
     for (const o of DYN_OVERLAYS) {
-      const vals = displayData
-        .map((r) => r[o.key as keyof ChartRow] as number | null)
-        .filter((v): v is number => v != null);
-      domains[o.key] = vals.length ? [Math.min(...vals), Math.max(...vals)] : null;
+      // Single pass, no spread: Math.min(...vals) passes every sample as an
+      // argument and blows the call stack once the series gets long enough.
+      let lo = Infinity, hi = -Infinity, seen = false;
+      for (const r of displayData) {
+        const v = r[o.key as keyof ChartRow] as number | null;
+        if (v == null) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+        seen = true;
+      }
+      domains[o.key] = seen ? [lo, hi] : null;
     }
     return domains;
-  }, [data, zoomedRange]);
+  }, [displayData]);
 
   const hasPower = datapoints.some((dp) => dp.power_w !== null);
   const hasAltitude = datapoints.some((dp) => dp.altitude_m != null);

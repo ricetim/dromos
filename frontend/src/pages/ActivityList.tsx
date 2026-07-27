@@ -8,14 +8,9 @@ import RouteThumbnail from "../components/RouteThumbnail";
 import RpeBadge from "../components/RpeBadge";
 import { PaceFraction } from "../components/PaceFraction";
 import { HeartPulseIcon } from "../components/HeartPulseIcon";
-import { formatDate, displayDateKey, formatDateKey } from "../utils/dates";
+import { displayDateKey, formatCompact, formatDate, formatDateKey } from "../utils/dates";
 import { PAGE_SIZE } from "../config";
 
-function formatDuration(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
 
 function formatWorkoutName(sportType: string, name?: string | null): string {
   if (name) return name;
@@ -297,7 +292,7 @@ export default function ActivityList() {
               {/* Stats */}
               <div className="flex items-center gap-4 text-sm text-right flex-shrink-0">
                 <div className="font-semibold text-gray-900">{fmtDist(a.distance_m)}</div>
-                <div className="font-semibold text-gray-900">{formatDuration(a.duration_s)}</div>
+                <div className="font-semibold text-gray-900">{formatCompact(a.duration_s)}</div>
                 <PaceFraction sPerKm={a.avg_pace_s_per_km} className="font-semibold text-gray-900" />
                 {a.avg_hr && (
                   <div className="flex items-center gap-1 font-semibold text-gray-900">

@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR
 from app.database import get_session
-from app.models import Activity, ActivityShoe, DataPoint, Photo, Lap, Shoe
+from app.models import Activity, ActivityPB, ActivityShoe, DataPoint, Photo, Lap, Shoe
 from app.services.fit_parser import parse_fit_file
 from app.services.builder import bg_rebuild_after_upload, bg_rebuild_after_delete, bg_rebuild_after_activity_update, bg_rebuild_globals, _rebuild_shoes, STATIC_DIR
 from app.services.weather import fetch_weather
@@ -144,6 +144,9 @@ def delete_activity(activity_id: int, background_tasks: BackgroundTasks, session
     session.exec(sa_delete(Lap).where(Lap.activity_id == activity_id))
     session.exec(sa_delete(Photo).where(Photo.activity_id == activity_id))
     session.exec(sa_delete(ActivityShoe).where(ActivityShoe.activity_id == activity_id))
+    # Cached personal-best segments for this activity — leaving them would keep
+    # a deleted run on the leaderboard.
+    session.exec(sa_delete(ActivityPB).where(ActivityPB.activity_id == activity_id))
     session.delete(act)
     session.commit()
 

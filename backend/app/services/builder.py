@@ -63,7 +63,8 @@ def _downsample(points: list, max_points: int = 150) -> list:
 # globals-only refresh). v2: trimmed activities.json + downsampled track/datapoints.
 # v3: added sunrise/sunset to activity-{id}.json.
 # v4: Brotli .br siblings — force a full rebuild so per-activity files get one.
-STATIC_SCHEMA_VERSION = "4"
+# v5: thumbnail coords at 4 decimals; training_load dropped from dashboard.json.
+STATIC_SCHEMA_VERSION = "5"
 
 
 def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
@@ -74,6 +75,10 @@ def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
 # ── Payload tuning ───────────────────────────────────────────────────────────
 # Coordinate precision: 5 decimals ≈ 1.1 m, far finer than any rendering here.
 _COORD_PREC = 5
+# Thumbnails are 112×84 px covering a whole run, so one pixel spans tens of
+# metres — 4 decimals (≈11 m) is already far below what can be drawn, and the
+# coordinates dominate activities.json.
+_THUMB_COORD_PREC = 4
 # Thumbnail routes (112×84px) need only a coarse outline.
 _THUMB_TRACK_POINTS = 48
 # Detail map polyline: ~one point every few metres is plenty for a route line.
@@ -93,7 +98,7 @@ _LIST_FIELDS = (
 def _thumb_track(points: list) -> list:
     """Coarse, low-precision [lat, lon] outline for list/dashboard thumbnails."""
     return [
-        [round(lat, _COORD_PREC), round(lon, _COORD_PREC)]
+        [round(lat, _THUMB_COORD_PREC), round(lon, _THUMB_COORD_PREC)]
         for lat, lon in _downsample(points, _THUMB_TRACK_POINTS)
     ]
 
@@ -288,6 +293,15 @@ def rebuild_activity(
         [dp.model_dump() for dp in _downsample(dps, _CHART_DATAPOINTS)],
     )
 
+    # Cache this activity's thumbnail outline while its datapoints are already
+    # in hand, so _rebuild_activities can build activities.json from activity
+    # rows alone instead of re-reading every GPS point in the database. Done
+    # last: commit() expires the ORM instances, and model_dump() on an expired
+    # instance silently returns a partial dict.
+    act.thumb_track = json.dumps(_thumb_track([(lat, lon) for lat, lon, _ in gps_rows]))
+    session.add(act)
+    session.commit()
+
 
 # ---------------------------------------------------------------------------
 # Metrics helpers
@@ -401,16 +415,30 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
 
     ids = [a.id for a in activities]
 
-    gps_rows = session.exec(
-        select(DataPoint.activity_id, DataPoint.lat, DataPoint.lon)
-        .where(DataPoint.activity_id.in_(ids))
-        .where(DataPoint.lat.is_not(None))
-        .where(DataPoint.lon.is_not(None))
-        .order_by(DataPoint.activity_id, DataPoint.timestamp)
-    ).all()
-    gps_by_id: dict[int, list] = defaultdict(list)
-    for row in gps_rows:
-        gps_by_id[row[0]].append([row[1], row[2]])
+    # Thumbnail outlines come from the cached Activity.thumb_track column. Only
+    # activities imported before the cache existed need a GPS read, and each is
+    # backfilled here so the scan never repeats.
+    thumbs_by_id: dict[int, list] = {}
+    missing: list[int] = []
+    for a in activities:
+        if a.thumb_track:
+            thumbs_by_id[a.id] = json.loads(a.thumb_track)
+        else:
+            missing.append(a.id)
+
+    if missing:
+        gps_rows = session.exec(
+            select(DataPoint.activity_id, DataPoint.lat, DataPoint.lon)
+            .where(DataPoint.activity_id.in_(missing))
+            .where(DataPoint.lat.is_not(None))
+            .where(DataPoint.lon.is_not(None))
+            .order_by(DataPoint.activity_id, DataPoint.timestamp)
+        ).all()
+        gps_by_id: dict[int, list] = defaultdict(list)
+        for row in gps_rows:
+            gps_by_id[row[0]].append([row[1], row[2]])
+        for act_id in missing:
+            thumbs_by_id[act_id] = _thumb_track(gps_by_id.get(act_id, []))
 
     shoe_rows = session.exec(
         select(ActivityShoe.activity_id, Shoe.name)
@@ -425,11 +453,20 @@ def _rebuild_activities(session: Session, static_dir: Path) -> None:
     for a in activities:
         full = a.model_dump()
         d = {k: full[k] for k in _LIST_FIELDS}
-        d["track"] = _thumb_track(gps_by_id.get(a.id, []))
+        d["track"] = thumbs_by_id.get(a.id, [])
         d["shoe_names"] = shoes_by_id.get(a.id, [])
         result.append(d)
 
     _write_json(static_dir / "activities.json", result)
+
+    # Persist any backfilled outlines last — commit() expires the ORM instances,
+    # and the model_dump() calls above would then yield partial dicts.
+    if missing:
+        by_id = {a.id: a for a in activities}
+        for act_id in missing:
+            by_id[act_id].thumb_track = json.dumps(thumbs_by_id[act_id])
+            session.add(by_id[act_id])
+        session.commit()
 
 
 def _today_fn() -> date:
@@ -440,7 +477,12 @@ def _today_fn() -> date:
 
 
 def _rebuild_dashboard(session: Session, static_dir: Path) -> None:
-    from app.services.stats import get_training_load, get_vdot, get_personal_bests
+    # NOTE: get_training_load() is deliberately not called here. Nothing renders
+    # CTL/ATL/TSB yet, and shipping it added ~27 KB (half of dashboard.json) to
+    # every client. The computation in services/stats.py and services/analytics.py
+    # is kept intact — re-add "training_load" to the payload below when the
+    # fitness/freshness chart lands.
+    from app.services.stats import get_vdot, get_personal_bests
     from app.models import Activity
 
     acts = session.exec(select(Activity)).all()
@@ -456,7 +498,6 @@ def _rebuild_dashboard(session: Session, static_dir: Path) -> None:
     _write_json(static_dir / "dashboard.json", {
         "summary": summary,
         "volume": volume,
-        "training_load": get_training_load(days=365, session=session),
         "vdot": get_vdot(session=session),
         "personal_bests": get_personal_bests(session=session),
     })
@@ -570,9 +611,11 @@ def rebuild_all(
 ) -> None:
     """Rebuild every static file. Called on first startup or after Coros sync."""
     from app.models import Activity
+    # Per-activity first: it populates Activity.thumb_track, so the globals pass
+    # below builds activities.json without touching the DataPoint table.
+    for act_id in session.exec(select(Activity.id)).all():
+        rebuild_activity(act_id, session, static_dir)
     rebuild_globals(session, static_dir)
-    for act in session.exec(select(Activity)).all():
-        rebuild_activity(act.id, session, static_dir)
     (static_dir / ".schema_version").write_text(STATIC_SCHEMA_VERSION)
 
 

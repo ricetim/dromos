@@ -5,14 +5,8 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import { getPersonalBests, getMetrics } from "../api/client";
 import { CHART_COLORS } from "../config";
 import { useUnits } from "../contexts/UnitsContext";
+import { formatClock } from "../utils/dates";
 
-function fmtTime(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
 
 type PBEntry = {
   rank: number;
@@ -173,7 +167,7 @@ export default function Fitness() {
                         )}
                       </td>
                       <td className="py-2.5 text-right text-sm font-bold text-gray-900 font-mono">
-                        {best ? fmtTime(best.time_s) : <span className="text-gray-300">—</span>}
+                        {best ? formatClock(best.time_s) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="py-2.5 text-right text-sm text-gray-500 font-mono">
                         {pacePerKm ? fmtPace(pacePerKm) : ""}
@@ -195,7 +189,7 @@ export default function Fitness() {
                       return (
                         <tr key={`${label}-${e.rank}`} className="bg-gray-50 border-b border-gray-50">
                           <td className="py-1.5 pl-5 text-xs text-gray-400">#{e.rank}</td>
-                          <td className="py-1.5 text-right text-xs text-gray-600 font-mono">{fmtTime(e.time_s)}</td>
+                          <td className="py-1.5 text-right text-xs text-gray-600 font-mono">{formatClock(e.time_s)}</td>
                           <td className="py-1.5 text-right text-xs text-gray-400 font-mono">
                             {pace ? fmtPace(pace) : ""}
                           </td>

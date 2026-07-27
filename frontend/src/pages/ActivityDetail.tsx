@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getActivityFull, getDataPoints, getPhotos, getPersonalBests, getVdot, updateActivity, updateActivityShoe, getShoes, getActivities, refreshActivityFromCoros, deleteActivity } from "../api/client";
 import { Activity, DataPoint, Photo, Shoe } from "../types";
 import { useUnits } from "../contexts/UnitsContext";
-import { formatDateLong, formatTime } from "../utils/dates";
+import { formatClock, formatDateLong, formatTime } from "../utils/dates";
 import ActivityMap, { ActivityMapHandle } from "../components/ActivityMap";
 import ActivityCharts from "../components/ActivityCharts";
 import PhotoGallery from "../components/PhotoGallery";
@@ -24,13 +24,6 @@ interface Lap {
 
 // formatPace is provided by useUnits()
 
-function formatDuration(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
 
 const RPE_COLORS = ["", "text-blue-500", "text-green-500", "text-yellow-500", "text-orange-500", "text-red-500"];
 
@@ -116,7 +109,7 @@ function RangeSummary({
     <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
       <span className="font-medium text-orange-700 mr-3">Selected range:</span>
       <span className="text-gray-700 mr-4">{fmtDist(distM)}</span>
-      <span className="text-gray-700 mr-4">{formatDuration(durationS)}</span>
+      <span className="text-gray-700 mr-4">{formatClock(durationS)}</span>
       {avgPace && <span className="text-gray-700 mr-4">{fmtPaceBoth(avgPace)}</span>}
       {avgHr && <span className="text-gray-700 mr-4">{avgHr} bpm avg</span>}
       {netElev != null && (
@@ -183,7 +176,7 @@ function LapTable({
                   {fmtDist(lap.distance_m).split(" ")[0]}
                 </td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">
-                  {formatDuration(Math.round(lap.duration_s))}
+                  {formatClock(Math.round(lap.duration_s))}
                 </td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">{pace.mi}</td>
                 <td className="py-1.5 text-right text-gray-800 tabular-nums pl-2">{pace.km}</td>
@@ -260,13 +253,6 @@ function HrZones({ datapoints, hrMax }: { datapoints: DataPoint[]; hrMax: number
 type PBEntry = { rank: number; time_s: number; activity_id: number; start_elapsed_s: number; end_elapsed_s: number };
 type PBData = Record<string, PBEntry[] | null>;
 
-function fmtTime(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
 
 const RANK_COLORS = ["text-yellow-500", "text-gray-400", "text-orange-400"];
 
@@ -302,7 +288,7 @@ function BestEfforts({ actId, onSegmentSelect }: { actId: number; onSegmentSelec
             className="flex items-center justify-between text-xs rounded hover:bg-blue-50 px-1.5 py-1 transition-colors text-left"
           >
             <span className="text-gray-600 font-medium w-16">{e.dist}</span>
-            <span className="font-mono text-gray-900">{fmtTime(e.time_s)}</span>
+            <span className="font-mono text-gray-900">{formatClock(e.time_s)}</span>
             <span className={`ml-1.5 font-semibold ${RANK_COLORS[e.rank - 1] ?? "text-gray-400"}`}>
               #{e.rank}
             </span>
@@ -504,17 +490,31 @@ export default function ActivityDetail() {
     setEditingNotes(false);
   }
 
-  // Convert elapsed seconds → nearest datapoint index
-  function elapsedToIdx(targetS: number): number {
-    if (!datapoints.length) return 0;
+  // Elapsed seconds per datapoint, parsed once. elapsedToIdx runs on the lap
+  // hover path (twice per render), so parsing every timestamp on each call cost
+  // ~2 ms per hover on a 2k-point activity.
+  const elapsedSeconds = useMemo(() => {
+    if (!datapoints.length) return [] as number[];
     const t0 = new Date(datapoints[0].timestamp).getTime();
-    let best = 0, bestDiff = Infinity;
-    for (let i = 0; i < datapoints.length; i++) {
-      const diff = Math.abs((new Date(datapoints[i].timestamp).getTime() - t0) / 1000 - targetS);
-      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    return datapoints.map((dp) => (new Date(dp.timestamp).getTime() - t0) / 1000);
+  }, [datapoints]);
+
+  // Convert elapsed seconds → nearest datapoint index. Timestamps are ascending,
+  // so binary search finds the insertion point, then we pick the closer neighbour.
+  const elapsedToIdx = useCallback((targetS: number): number => {
+    const n = elapsedSeconds.length;
+    if (!n) return 0;
+    let lo = 0, hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (elapsedSeconds[mid] < targetS) lo = mid + 1;
+      else hi = mid;
     }
-    return best;
-  }
+    if (lo > 0 && Math.abs(elapsedSeconds[lo - 1] - targetS) < Math.abs(elapsedSeconds[lo] - targetS)) {
+      return lo - 1;
+    }
+    return lo;
+  }, [elapsedSeconds]);
 
   // Auto-zoom to personal-best segment when seg_start/seg_end query params are present
   useEffect(() => {
@@ -651,7 +651,7 @@ export default function ActivityDetail() {
         {/* Stats row */}
         <div className="flex items-start gap-0 px-5 py-3 flex-wrap">
           <StatCell label="Distance" value={fmtDist(act.distance_m)} />
-          <StatCell label="Time" value={formatDuration(act.duration_s)} />
+          <StatCell label="Time" value={formatClock(act.duration_s)} />
           <StatCell label="Avg Pace" value={<PaceFraction sPerKm={act.avg_pace_s_per_km} className="text-base" />} />
           <div className="flex flex-col items-center px-4 first:pl-0 last:pr-0 border-l first:border-l-0 border-gray-200">
             <div className="flex flex-col items-center leading-tight tabular-nums">

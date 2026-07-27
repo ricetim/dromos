@@ -182,7 +182,25 @@ def get_vdot(session: Session) -> dict:
 # Personal bests (fastest real segment per distance)
 # ---------------------------------------------------------------------------
 
-def _find_fastest_segment(dps, target_m: float, gps_correction: float = 0.0):
+def _extract_series(dps) -> tuple[list[float], list[float]]:
+    """Split datapoints into parallel (distance_m, epoch_seconds) float lists.
+
+    Built once per activity and reused across every target distance. The float
+    seconds matter: the sliding window below runs tens of millions of
+    iterations, and datetime subtraction there costs far more than a plain
+    float subtract.
+    """
+    dist: list[float] = []
+    tsec: list[float] = []
+    for dp in dps:
+        if dp.distance_m is not None and dp.timestamp is not None:
+            dist.append(dp.distance_m)
+            tsec.append(dp.timestamp.timestamp())
+    return dist, tsec
+
+
+def _fastest_segment(dist: list[float], tsec: list[float], target_m: float,
+                     gps_correction: float = 0.0):
     """
     Fastest segment of at least target_m * (1 - gps_correction) meters.
 
@@ -194,26 +212,30 @@ def _find_fastest_segment(dps, target_m: float, gps_correction: float = 0.0):
     span stays >= min_span, minimising elapsed time for that window.
     Returns (time_s, start_elapsed_s, end_elapsed_s) or None.
     """
-    min_span = target_m * (1 - gps_correction)
-    pts = [(dp.distance_m, dp.timestamp) for dp in dps
-           if dp.distance_m is not None and dp.timestamp is not None]
-    if len(pts) < 2:
+    n = len(dist)
+    if n < 2:
         return None
-    t0 = pts[0][1]
+    min_span = target_m * (1 - gps_correction)
+    t0 = tsec[0]
     best = None
     left = 0
-    for right in range(1, len(pts)):
+    for right in range(1, n):
         # Advance left as far right as possible while span stays >= min_span
-        while left + 1 < right and pts[right][0] - pts[left + 1][0] >= min_span:
+        while left + 1 < right and dist[right] - dist[left + 1] >= min_span:
             left += 1
-        span = pts[right][0] - pts[left][0]
-        if span >= min_span:
-            t = (pts[right][1] - pts[left][1]).total_seconds()
+        if dist[right] - dist[left] >= min_span:
+            t = tsec[right] - tsec[left]
             if t > 0 and (best is None or t < best[0]):
-                t_start = (pts[left][1] - t0).total_seconds()
-                t_end = (pts[right][1] - t0).total_seconds()
-                best = (t, t_start, t_end)
+                best = (t, tsec[left] - t0, tsec[right] - t0)
     return best
+
+
+def _find_fastest_segment(dps, target_m: float, gps_correction: float = 0.0):
+    """Convenience wrapper taking raw datapoints. Prefer the split
+    _extract_series/_fastest_segment pair when scanning several distances over
+    the same activity, so the series is built once instead of per distance."""
+    dist, tsec = _extract_series(dps)
+    return _fastest_segment(dist, tsec, target_m, gps_correction)
 
 
 _PB_DISTANCES = [
@@ -238,54 +260,82 @@ _PB_DISTANCES = [
 _DpRow = namedtuple("_DpRow", ["distance_m", "timestamp"])
 
 
-def get_personal_bests(session: Session) -> dict:
-    """
-    Fastest real segments for common distances (400 m → marathon).
+def refresh_pb_cache(session: Session) -> int:
+    """Compute and store ActivityPB rows for activities not yet processed.
 
-    Uses a single bulk query + two-pointer sliding window.
+    An activity's DataPoints are immutable after import, so its fastest segment
+    per distance is computed exactly once. Returns the number of activities
+    processed (0 on the common path, where nothing new has been imported).
     """
-    # Activity distances to skip short activities early
-    act_dist = {a[0]: a[1] for a in session.exec(
-        select(Activity.id, Activity.distance_m)
-    ).all()}
+    from app.models import ActivityPB
 
-    # Single bulk query — only distance + timestamp columns, sorted by activity then time.
-    # The (activity_id, timestamp) compound index makes this efficient.
+    pending = session.exec(
+        select(Activity.id, Activity.distance_m).where(Activity.pb_cached == False)  # noqa: E712
+    ).all()
+    if not pending:
+        return 0
+    pending_dist = {aid: dist or 0.0 for aid, dist in pending}
+
+    # Only the new activities' points — not the whole table.
     rows = session.exec(
         select(DataPoint.activity_id, DataPoint.distance_m, DataPoint.timestamp)
+        .where(DataPoint.activity_id.in_(list(pending_dist)))
         .where(DataPoint.distance_m.is_not(None))
         .order_by(DataPoint.activity_id, DataPoint.timestamp)
     ).all()
 
-    # Group into per-activity point lists
     dps_by_act: dict[int, list] = {}
     for act_id, dist_m, ts in rows:
-        if act_id not in dps_by_act:
-            dps_by_act[act_id] = []
-        dps_by_act[act_id].append(_DpRow(dist_m, ts))
+        dps_by_act.setdefault(act_id, []).append(_DpRow(dist_m, ts))
+
+    for act_id, total_dist in pending_dist.items():
+        dps = dps_by_act.get(act_id, ())
+        if len(dps) >= 2:
+            dist, tsec = _extract_series(dps)
+            for label, target_m in _PB_DISTANCES:
+                if total_dist < target_m:
+                    continue
+                found = _fastest_segment(dist, tsec, target_m)
+                if found is None:
+                    continue
+                time_s, t_start, t_end = found
+                session.add(ActivityPB(
+                    activity_id=act_id, label=label, time_s=time_s,
+                    start_elapsed_s=t_start, end_elapsed_s=t_end,
+                ))
+        # Mark processed even when nothing qualified, so short activities
+        # aren't rescanned on every rebuild.
+        act = session.get(Activity, act_id)
+        if act:
+            act.pb_cached = True
+            session.add(act)
+
+    session.commit()
+    return len(pending_dist)
+
+
+def get_personal_bests(session: Session) -> dict:
+    """
+    Fastest real segments for common distances (400 m → marathon).
+
+    Reads the per-activity ActivityPB cache, computing only what is missing,
+    then merges the global top N per distance.
+    """
+    from app.models import ActivityPB
+
+    refresh_pb_cache(session)
 
     _TOP_N = 20
-    # bests[label] = sorted list of (time_s, act_id, t_start, t_end), ascending by time_s
     bests: dict[str, list] = {label: [] for label, _ in _PB_DISTANCES}
-
-    for act_id, dps in dps_by_act.items():
-        if len(dps) < 2:
-            continue
-        total_dist = act_dist.get(act_id, 0.0)
-        for label, target_m in _PB_DISTANCES:
-            if total_dist < target_m:
-                continue
-            result = _find_fastest_segment(dps, target_m)
-            if result is None:
-                continue
-            time_s, t_start, t_end = result
-            bucket = bests[label]
-            # Keep only top N; discard if slower than current worst
-            if len(bucket) < _TOP_N or time_s < bucket[-1][0]:
-                bucket.append((time_s, act_id, t_start, t_end))
-                bucket.sort(key=lambda x: x[0])
-                if len(bucket) > _TOP_N:
-                    bucket.pop()
+    for label, time_s, act_id, t_start, t_end in session.exec(
+        select(ActivityPB.label, ActivityPB.time_s, ActivityPB.activity_id,
+               ActivityPB.start_elapsed_s, ActivityPB.end_elapsed_s)
+        .order_by(ActivityPB.label, ActivityPB.time_s)
+    ).all():
+        bucket = bests.get(label)
+        # Rows arrive fastest-first per label, so the first _TOP_N are the best.
+        if bucket is not None and len(bucket) < _TOP_N:
+            bucket.append((time_s, act_id, t_start, t_end))
 
     out = {}
     for label, _ in _PB_DISTANCES:
