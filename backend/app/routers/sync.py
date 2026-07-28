@@ -10,7 +10,7 @@ from app.services.coros import login as coros_login, list_activities as coros_li
 from app.services.coros import download_fit, get_activity_detail
 from app.services.fit_parser import parse_fit_file
 from app.config import COROS_EMAIL, COROS_PASSWORD, DATA_DIR, STRAVA_REFRESH_TOKEN
-from app.services.builder import bg_rebuild_all
+from app.services.builder import bg_rebuild_all, bg_rebuild_after_import
 from app.services.weather import fetch_weather
 from app.services.sun import sun_fields
 from app.services.shoe_default import stamp_default_shoe
@@ -87,6 +87,7 @@ def _sync_strava_activities() -> None:
             # ── 2. Match local activities → strava_id (time match) ───────
             local_acts = session.exec(select(Activity)).all()
             matched_count = 0
+            touched_ids: list[int] = []
 
             for act in local_acts:
                 local_ts = _local_ts(act)
@@ -103,6 +104,7 @@ def _sync_strava_activities() -> None:
                     act.strava_id = strava_id
                     session.add(act)
                     matched_count += 1
+                    touched_ids.append(act.id)
 
             session.commit()
 
@@ -149,6 +151,7 @@ def _sync_strava_activities() -> None:
                     session.add(local)
                     del cand_pool[cand.id]   # don't let another strava act reuse it
                     adopted_count += 1
+                    touched_ids.append(cand.id)
                     log_warning(
                         "sync.strava",
                         f"adopted strava {strava_id} onto local activity {cand.id} "
@@ -252,6 +255,7 @@ def _sync_strava_activities() -> None:
                     session.add(act)
 
                 streams_imported += 1
+                touched_ids.append(act.id)
                 log_info(
                     "sync.strava",
                     f"imported strava {strava_id} as new activity {act.id} "
@@ -268,7 +272,11 @@ def _sync_strava_activities() -> None:
             ).all()
             new_photos = sum(sync_photos_for_activity(a, session, token) for a in acts_with_strava)
 
-            bg_rebuild_all()
+            # Same rule as the Coros poll: rebuild only the activities this
+            # run actually touched, plus the shared global files. Photos live
+            # behind the API rather than in the static snapshot, so they don't
+            # require a rebuild of their own.
+            bg_rebuild_after_import(touched_ids)
 
             _last_sync = {
                 "status": "ok",
@@ -304,6 +312,7 @@ def _sync_coros() -> None:
             remote = coros_list(token, user_id)
             existing_acts = {a.external_id: a for a in session.exec(select(Activity)).all()}
             new_count = 0
+            imported_ids: list[int] = []
             log_info("sync.coros",
                      f"sync started: {len(remote)} activities listed on coros")
             for meta in remote:
@@ -353,6 +362,7 @@ def _sync_coros() -> None:
                         elevation_gain_m=lap.elevation_gain_m,
                     ))
                 new_count += 1
+                imported_ids.append(act.id)
                 log_info(
                     "sync.coros",
                     f"imported coros {ext_id} as new activity {act.id} "
@@ -376,7 +386,12 @@ def _sync_coros() -> None:
             _last_sync = {"status": "ok", "ts": datetime.now(timezone.utc).isoformat(),
                           "new_activities": new_count, "error": None}
             log_info("sync.coros", f"sync complete: {new_count} new activities", _last_sync)
-            bg_rebuild_all()
+            # Rebuild only what changed. This poll runs every five minutes and
+            # almost always finds nothing, so the common case does no work at
+            # all; when a run does land, only its own files plus the shared
+            # global files need regenerating. rebuild_all() would walk all ~180
+            # activities and Brotli-compress each payload at quality 11.
+            bg_rebuild_after_import(imported_ids)
         except Exception as e:
             _last_sync = {"status": "error", "ts": datetime.now(timezone.utc).isoformat(),
                           "error": str(e)}

@@ -6,6 +6,7 @@ files in STATIC_DIR are regenerated atomically. nginx serves these
 files directly, so reads never touch Python.
 """
 import json
+import math
 import os
 from collections import defaultdict
 from datetime import date, timedelta, datetime
@@ -64,7 +65,9 @@ def _downsample(points: list, max_points: int = 150) -> list:
 # v3: added sunrise/sunset to activity-{id}.json.
 # v4: Brotli .br siblings — force a full rebuild so per-activity files get one.
 # v5: thumbnail coords at 4 decimals; training_load dropped from dashboard.json.
-STATIC_SCHEMA_VERSION = "5"
+# v6: thumbnails simplified by RDP at full precision — forces a rebuild so the
+#     cached Activity.thumb_track values are regenerated at the new fidelity.
+STATIC_SCHEMA_VERSION = "6"
 
 
 def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
@@ -75,12 +78,20 @@ def static_schema_is_current(static_dir: Path = STATIC_DIR) -> bool:
 # ── Payload tuning ───────────────────────────────────────────────────────────
 # Coordinate precision: 5 decimals ≈ 1.1 m, far finer than any rendering here.
 _COORD_PREC = 5
-# Thumbnails are 112×84 px covering a whole run, so one pixel spans tens of
-# metres — 4 decimals (≈11 m) is already far below what can be drawn, and the
-# coordinates dominate activities.json.
-_THUMB_COORD_PREC = 4
-# Thumbnail routes (112×84px) need only a coarse outline.
-_THUMB_TRACK_POINTS = 48
+# Thumbnails keep full 5-decimal precision. 4 decimals (≈11 m) looked safe for
+# a 112×84 px tile, but the tile is scaled to the route's own bounding box: on a
+# compact run (~450 m across) 11 m is ~2.5 px, which showed as visible
+# stair-stepping. The error scales with the route, so short runs suffer most.
+_THUMB_COORD_PREC = _COORD_PREC
+# Thumbnail simplification. Uniform sampling spends points on straightaways and
+# still rounds off corners; Ramer–Douglas–Peucker keeps vertices where the route
+# actually turns, which is what makes a route recognisable. Epsilon is a fraction
+# of the route's bounding-box diagonal, so a 1 km loop and a 30 km long run get
+# the same on-screen fidelity. 0.003 lands at ~60–80 points and is visually near
+# indistinguishable from the undecimated track at thumbnail size.
+_THUMB_SIMPLIFY_FRAC = 0.003
+# Hard cap so a pathological track can't bloat activities.json.
+_THUMB_MAX_POINTS = 160
 # Detail map polyline: ~one point every few metres is plenty for a route line.
 _MAP_TRACK_POINTS = 2000
 # Per-activity chart series: hover/lines stay crisp well below full FIT density.
@@ -95,11 +106,51 @@ _LIST_FIELDS = (
 )
 
 
+def _simplify(points: list, eps: float) -> list:
+    """Ramer–Douglas–Peucker: drop points that lie within ``eps`` of the line
+    between the points they sit among. Iterative (an explicit stack) so a dense
+    track can't blow the recursion limit."""
+    n = len(points)
+    if n < 3 or eps <= 0:
+        return list(points)
+    keep = [False] * n
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        x1, y1 = points[i][0], points[i][1]
+        x2, y2 = points[j][0], points[j][1]
+        dx, dy = x2 - x1, y2 - y1
+        den = math.hypot(dx, dy)
+        worst, worst_i = -1.0, -1
+        for k in range(i + 1, j):
+            x0, y0 = points[k][0], points[k][1]
+            # Perpendicular distance to the chord (or to the endpoint when the
+            # chord has zero length, i.e. the route returned to where it began).
+            d = (abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / den
+                 if den else math.hypot(x0 - x1, y0 - y1))
+            if d > worst:
+                worst, worst_i = d, k
+        if worst > eps:
+            keep[worst_i] = True
+            stack.append((i, worst_i))
+            stack.append((worst_i, j))
+    return [p for p, k in zip(points, keep) if k]
+
+
 def _thumb_track(points: list) -> list:
-    """Coarse, low-precision [lat, lon] outline for list/dashboard thumbnails."""
+    """Shape-preserving [lat, lon] outline for list/dashboard thumbnails."""
+    if len(points) > 2:
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        diag = math.hypot(max(lats) - min(lats), max(lons) - min(lons))
+        if diag > 0:
+            points = _simplify(points, _THUMB_SIMPLIFY_FRAC * diag)
     return [
         [round(lat, _THUMB_COORD_PREC), round(lon, _THUMB_COORD_PREC)]
-        for lat, lon in _downsample(points, _THUMB_TRACK_POINTS)
+        for lat, lon in _downsample(points, _THUMB_MAX_POINTS)
     ]
 
 
@@ -636,6 +687,25 @@ def bg_rebuild_after_upload(activity_id: int) -> None:
             rebuild_globals(session)
     except Exception as exc:
         print(f"[builder] bg_rebuild_after_upload failed: {exc}")
+
+
+def bg_rebuild_after_import(activity_ids) -> None:
+    """Call after a sync imported or modified a known set of activities.
+
+    Only those activities' per-activity files can have changed, so rebuilding
+    every one of them (bg_rebuild_all) is wasted work that grows with history.
+    The global files are shared, so they are refreshed once at the end.
+    """
+    ids = list(dict.fromkeys(activity_ids))   # de-dup, keep order
+    if not ids:
+        return
+    try:
+        with _new_session() as session:
+            for activity_id in ids:
+                rebuild_activity(activity_id, session)
+            rebuild_globals(session)
+    except Exception as exc:
+        print(f"[builder] bg_rebuild_after_import failed: {exc}")
 
 
 def bg_rebuild_after_delete(activity_id: int, static_dir: Path = STATIC_DIR) -> None:

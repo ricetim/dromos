@@ -65,7 +65,14 @@ async def lifespan(app: FastAPI):
     if STRAVA_REFRESH_TOKEN:
         scheduler.add_job(_sync_strava_activities, "interval", hours=6)
     if COROS_EMAIL:
-        scheduler.add_job(_sync_coros, "interval", minutes=30)
+        # Cron rather than interval: fires on the wall-clock five-minute marks
+        # (:00, :05 … :55) instead of drifting from whenever the process booted.
+        # coalesce/max_instances guard against a slow sync stacking up runs.
+        scheduler.add_job(
+            _sync_coros, "cron", minute="*/5",
+            id="sync_coros", replace_existing=True,
+            coalesce=True, max_instances=1,
+        )
     scheduler.start()
     threading.Thread(target=_startup_rebuild, daemon=True).start()
     yield

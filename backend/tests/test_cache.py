@@ -6,13 +6,17 @@ deleted run on the personal-best leaderboard, or serve a thumbnail for a route
 that no longer exists.
 """
 import json
+import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlmodel import select
 
 from app.models import Activity, ActivityPB, DataPoint
-from app.services.builder import _rebuild_activities, rebuild_activity
+from app.services.builder import (
+    _THUMB_MAX_POINTS, _rebuild_activities, _simplify, _thumb_track,
+    rebuild_activity,
+)
 from app.services.stats import get_personal_bests, refresh_pb_cache
 
 
@@ -164,5 +168,48 @@ def test_thumb_track_coordinates_are_rounded(session, tmp_path):
     rebuild_activity(act.id, session, static_dir=tmp_path)
     session.refresh(act)
     for lat, lon in json.loads(act.thumb_track):
-        assert lat == round(lat, 4)
-        assert lon == round(lon, 4)
+        assert lat == round(lat, 5)
+        assert lon == round(lon, 5)
+
+
+# ── thumbnail simplification ─────────────────────────────────────────────────
+
+def test_simplify_drops_collinear_points_but_keeps_corners():
+    """A straight run of points collapses to its endpoints; a corner survives."""
+    straight = [(0.0, i * 0.001) for i in range(20)]
+    assert _simplify(straight, 1e-6) == [straight[0], straight[-1]]
+
+    corner = [(0.0, 0.0), (0.0, 0.005), (0.0, 0.01), (0.005, 0.01), (0.01, 0.01)]
+    out = _simplify(corner, 1e-4)
+    assert (0.0, 0.01) in out, "the turn itself must be kept"
+    assert len(out) == 3
+
+
+def test_simplify_keeps_endpoints_and_order():
+    pts = [(0.0, 0.0), (0.001, 0.004), (0.002, 0.0), (0.003, 0.004), (0.004, 0.0)]
+    out = _simplify(pts, 1e-5)
+    assert out[0] == pts[0] and out[-1] == pts[-1]
+    assert out == [p for p in pts if p in out], "original ordering preserved"
+
+
+def test_simplify_handles_degenerate_input():
+    assert _simplify([], 0.1) == []
+    assert _simplify([(1.0, 2.0)], 0.1) == [(1.0, 2.0)]
+    # A closed loop gives a zero-length chord — must not divide by zero.
+    loop = [(0.0, 0.0), (0.01, 0.01), (0.0, 0.0)]
+    assert len(_simplify(loop, 1e-6)) == 3
+
+
+def test_thumb_track_respects_the_point_cap():
+    """A jagged track that resists simplification is still capped."""
+    zigzag = [(i * 0.0001, (i % 2) * 0.01) for i in range(2000)]
+    assert len(_thumb_track(zigzag)) <= _THUMB_MAX_POINTS
+
+
+def test_thumb_track_fidelity_is_scale_invariant():
+    """The same route shape, large or small, keeps a similar number of points —
+    epsilon is relative to the bounding box, not an absolute distance."""
+    shape = [(math.sin(i / 12) * 0.02, i * 0.0005) for i in range(400)]
+    big = _thumb_track(shape)
+    small = _thumb_track([(lat / 20, lon / 20) for lat, lon in shape])
+    assert abs(len(big) - len(small)) <= 2
