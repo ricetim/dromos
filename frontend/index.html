@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dromos</title>
+    <script>
+      // Apply the theme before first paint so dark-by-default doesn't flash
+      // light while the JS bundle loads. Mirrors ThemeContext.initialTheme;
+      // the default here must match DEFAULT_THEME in src/config.ts.
+      (function () {
+        var theme = "solarized-dark";
+        try {
+          var saved = localStorage.getItem("theme-choice");
+          if (saved === "default" || saved === "solarized-dark" || saved === "solarized-light") theme = saved;
+        } catch (e) {}
+        if (theme !== "default") document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -41,3 +41,12 @@ export const THEMES: { key: AppTheme; label: string }[] = [
   { key: "solarized-dark", label: "Solarized Dark" },
   { key: "solarized-light","label": "Solarized Light" },
 ];
+
+/** Theme used until the user explicitly picks one. index.html's pre-paint
+ *  script hardcodes the same value; keep the two in sync. */
+export const DEFAULT_THEME: AppTheme = "solarized-dark";
+
+/** localStorage key holding an *explicit* theme choice. Deliberately not the
+ *  old "theme" key: that one was rewritten on every load, so a stored
+ *  "default" usually meant "never chose" rather than a real preference. */
+export const THEME_STORAGE_KEY = "theme-choice";
