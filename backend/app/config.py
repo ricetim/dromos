@@ -20,3 +20,8 @@ COROS_PASSWORD = os.getenv("COROS_PASSWORD", "")
 # Activities are stored as naive UTC; day-bucketing converts to this zone first
 # so the day flips at local midnight. Mirrors frontend src/config.ts DISPLAY_TZ.
 DISPLAY_TZ = os.getenv("DISPLAY_TZ", "America/Los_Angeles")
+
+# CARTO basemaps (the "light" and "dark" map styles) require an API key. Without
+# it CARTO serves an "API KEY REQUIRED" watermark tile — see routers/tiles.py.
+# Only the server-side tile proxy uses it; it is never sent to the browser.
+CARTO_API_KEY = os.getenv("CARTO_API_KEY", "")

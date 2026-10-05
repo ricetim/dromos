@@ -6,6 +6,8 @@ services:
       - "80:8000"
     volumes:
       - ./data:/data
+    # Secrets and settings (Coros/Strava credentials, CARTO_API_KEY for the Light
+    # and Dark map styles). Copy .env.example to .env; see README.md.
     env_file:
       - .env
     restart: unless-stopped
