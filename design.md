@@ -6,8 +6,8 @@ Dromos is a personal running fitness dashboard for analyzing Coros Pace 4 workou
 It ingests `.fit` files (directly from Coros, Strava, Runalyze export, or manual upload),
 computes Runalyze-style running statistics, and presents them in a rich, interactive web UI —
 including maps, charts, GPS-tagged photo pins, gear tracking, goal progress, and auto-generated
-training plans from Daniels and Pfitzinger methodologies. The entire application runs as a
-Docker container.
+training plans from Daniels and Pfitzinger methodologies. The entire application ships as a
+single Docker image (see System Architecture).
 
 ---
 
@@ -15,29 +15,47 @@ Docker container.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       Browser (SPA)                         │
-│  Dashboard │ Activities │ Activity Detail │ Goals │ Plans   │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP / REST
-┌────────────────────────▼────────────────────────────────────┐
-│                    Backend API (FastAPI)                     │
-│  /activities  /sync  /goals  /gear  /photos  /plans         │
-└──────┬──────────────────┬──────────────────────────────────-┘
-       │                  │
-┌──────▼──────┐  ┌────────▼───────────────────────────────────┐
-│  SQLite DB  │  │          Background Sync Service            │
-│  (raw +     │  │  Coros poller │ Strava poller │ Scheduled  │
-│  processed) │  └────────────────────────────────────────────┘
-└─────────────┘
+│                      Browser (SPA)                          │
+│ Dashboard │ Activities │ Activity Detail │ Compare │ Gear   │
+└──────┬──────────────────────┬─────────────────────┬─────────┘
+       │ reads                │ writes              │ map tiles
+       │ GET /static/*.json   │ /api/* (REST)       │ /api/tiles/*
+┌──────▼──────────────────────▼─────────────────────▼─────────┐
+│           Single container: FastAPI (uvicorn :8000)         │
+│                                                             │
+│ /            built React SPA (Brotli-precompressed)         │
+│ /static      static JSON snapshots, rebuilt after writes    │
+│ /api/...     activities · sync · goals · shoes · profile    │
+│              · logs · tiles (caching proxy → CARTO / OSM)   │
+│                                                             │
+│ APScheduler (in-process): Coros poll every 5 min (cron),    │
+│                           Strava sync every 6 h             │
+└──────┬──────────────────────────────────────────────────────┘
+       │
+┌──────▼──────────────────────────────────────────────────────┐
+│ /data volume:  dromos.db (SQLite) · fit_files/ · static/    │
+│                · tiles/ (map-tile cache)                    │
+└─────────────────────────────────────────────────────────────┘
 
-Docker Compose:
-  - backend  (FastAPI + APScheduler, port 8000)
-  - frontend (Nginx serving Vite build, port 80)
-  - volumes: ./data → /data  (SQLite DB + raw .fit files)
+Docker Compose: one service, image ricetim/dromos:latest
+  - port 80 (host) → 8000 (container)
+  - volume ./data → /data
+  - env_file .env  (Coros/Strava credentials, CARTO_API_KEY — see README.md)
 ```
 
-**Single-machine personal app.** Runs locally or on a personal VPS via Docker Compose.
-No auth complexity for single-user local deployment.
+**Single image, single process.** One multi-stage Dockerfile builds the Vite
+frontend in a Node stage, then copies the output into a `python:3.11-slim`
+runtime. FastAPI serves the SPA, the static JSON, and the API. There is no
+separate Nginx or frontend container.
+
+**Reads never touch the database.** Every page loads pre-built JSON from
+`/static` (`activities.json`, `dashboard.json`, `activity-{id}.json`, …). After
+each write (upload, sync import, edit, shoe or goal change), only the affected
+files are regenerated, in a background task (`services/builder.py`). Each file
+is written atomically, with a Brotli `.br` copy alongside it.
+
+**Single-user personal app.** Runs on a home server or VPS via Docker Compose,
+with no auth. Deployment and configuration are documented in `README.md`.
 
 ---
 
@@ -45,15 +63,15 @@ No auth complexity for single-user local deployment.
 
 | Layer | Choice | Rationale |
 |-------|--------|-----------|
-| Backend | Python 3.12 + FastAPI | Strong data science ecosystem; fitparse, numpy, pandas |
+| Backend | Python 3.11 + FastAPI (uvicorn) | One process serves the API, the SPA, and the static JSON |
 | Database | SQLite (via SQLModel/SQLAlchemy) | No infra overhead; sufficient for personal data volumes |
 | Background jobs | APScheduler (in-process) | Simple periodic sync without Redis/Celery overhead |
-| .fit parsing | `fitparse` library | Battle-tested ANT+ FIT format parser |
+| .fit parsing | `fitdecode` library | Streaming ANT+ FIT parser |
 | Frontend | React 18 + TypeScript + Vite | Fast iteration; rich chart/map ecosystem |
-| Maps | Leaflet.js + react-leaflet | Open-source, no API key required |
+| Maps | Leaflet.js + react-leaflet | Open-source. Tiles come through a server-side caching proxy; the CARTO Light/Dark styles need `CARTO_API_KEY`, OSM needs no key |
 | Charts | Recharts | React-native, composable, good for time-series drill-down |
 | Styling | Tailwind CSS | Utility-first; fast to prototype dashboard layouts |
-| Containerisation | Docker + Docker Compose | Single-command startup; portable across machines |
+| Containerisation | Docker (one multi-stage image) + Compose | Single image and single service; `docker compose pull && up -d` to deploy |
 
 ---
 
