@@ -18,13 +18,15 @@ from app.services.eventlog import log_info, log_warning, log_error
 from app.services.dedup import (
     LocalCandidate, TIME_MATCH_S, best_fallback_match, closest_in_window,
 )
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import threading
 import uuid
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 _last_sync: dict = {"status": "never", "ts": None, "error": None}
 _sync_lock = threading.Lock()
+# Strava photo sync only looks this far back (see _sync_strava_activities).
+_PHOTO_LOOKBACK_DAYS = 14
 
 
 @router.get("/status")
@@ -266,9 +268,18 @@ def _sync_strava_activities() -> None:
 
             session.commit()
 
-            # ── 3. Photo sync for all activities with strava_id ───────────
+            # ── 3. Photo sync for touched and recent activities ──────────
+            # One Strava API call per activity. Scanning every linked activity
+            # (~180 and growing) on each run would blow through Strava's
+            # 100-requests-per-15-minutes limit by itself. Photos are attached
+            # soon after a run, so check activities this run touched plus the
+            # last _PHOTO_LOOKBACK_DAYS. A photo added to an older run after
+            # that window won't be picked up automatically.
+            photo_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=_PHOTO_LOOKBACK_DAYS)
             acts_with_strava = session.exec(
-                select(Activity).where(Activity.strava_id.is_not(None))
+                select(Activity)
+                .where(Activity.strava_id.is_not(None))
+                .where((Activity.started_at >= photo_cutoff) | (Activity.id.in_(touched_ids or [-1])))
             ).all()
             new_photos = sum(sync_photos_for_activity(a, session, token) for a in acts_with_strava)
 
@@ -313,8 +324,10 @@ def _sync_coros() -> None:
             existing_acts = {a.external_id: a for a in session.exec(select(Activity)).all()}
             new_count = 0
             imported_ids: list[int] = []
-            log_info("sync.coros",
-                     f"sync started: {len(remote)} activities listed on coros")
+            # No "sync started" row: this runs every 5 minutes, and logging each
+            # no-op poll flooded the capped event log (5,000 rows) with routine
+            # entries, evicting real imports, warnings and errors within days.
+            # The latest poll's outcome is always at /api/sync/status.
             for meta in remote:
                 ext_id = str(meta.get("labelId", ""))
                 sport_type_str = str(meta.get("sportType", "100"))
@@ -385,7 +398,10 @@ def _sync_coros() -> None:
             session.commit()
             _last_sync = {"status": "ok", "ts": datetime.now(timezone.utc).isoformat(),
                           "new_activities": new_count, "error": None}
-            log_info("sync.coros", f"sync complete: {new_count} new activities", _last_sync)
+            if new_count:
+                log_info("sync.coros",
+                         f"sync complete: {new_count} new of {len(remote)} listed on coros",
+                         _last_sync)
             # Rebuild only what changed. This poll runs every five minutes and
             # almost always finds nothing, so the common case does no work at
             # all; when a run does land, only its own files plus the shared
